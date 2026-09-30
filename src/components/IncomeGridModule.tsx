@@ -22,6 +22,7 @@ import {
   getMonthlyStatus,
   getStudentAnnualSummary,
   formatCurrency,
+  addMovementLog,
 } from '../services/storage';
 import { openWhatsAppChat } from '../services/whatsapp';
 
@@ -55,6 +56,8 @@ export const IncomeGridModule: React.FC<IncomeGridModuleProps> = ({
     restante?: number;
     isSaldarRestante?: boolean;
   } | null>(null);
+  const [paymentModalTab, setPaymentModalTab] = useState<'pago' | 'eximir'>('pago');
+  const [motivoExencionInput, setMotivoExencionInput] = useState('Beca acordada por directiva');
   const [confirmRevokePayment, setConfirmRevokePayment] = useState<FeePayment | null>(null);
 
   const isAuditor = userRole === 'auditor';
@@ -89,6 +92,12 @@ export const IncomeGridModule: React.FC<IncomeGridModuleProps> = ({
 
       if (student.noPagaCuota) {
         // Exento doesn't count towards expected or debt
+        return;
+      }
+
+      // Alumno inactivo: sus pagos se consideran en el recaudado total pero no como deudor activo
+      if (student.activo === false) {
+        recaudadoTotal += summary.totalPaid;
         return;
       }
 
@@ -138,13 +147,63 @@ export const IncomeGridModule: React.FC<IncomeGridModuleProps> = ({
     };
 
     onUpdatePayments([...payments, newPayment]);
+
+    // Registrar log de movimiento contable
+    addMovementLog({
+      modulo: 'cuotas',
+      tipoAccion: 'pago_cuota_creado',
+      titulo: `Pago Cuota ${MONTH_NAMES[month]} Registrado`,
+      descripcion: `Pago de cuota de ${MONTH_NAMES[month]} ${year} por $${defaultMonto.toLocaleString('es-CL')} CLP registrado para el alumno ${student.nombres} ${student.apellidos}.`,
+      usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+      rol: userRole,
+      montoAfectado: defaultMonto,
+      referenciaId: student.id,
+      referenciaNombre: `${student.nombres} ${student.apellidos}`,
+      detallesAdicionales: { mes: MONTH_NAMES[month], medio: 'transferencia', comprobante: 'PAGO-DIR' },
+    });
   };
 
-  // Revoke/Delete payment
+  // Revoke/Delete payment or exemption
   const handleRevokePayment = (paymentId: string) => {
     if (isAuditor) return;
+    const target = payments.find((p) => p.id === paymentId);
     const updated = payments.filter((p) => p.id !== paymentId);
     onUpdatePayments(updated);
+
+    if (target) {
+      const student = students.find((s) => s.id === target.studentId);
+      const studentName = student ? `${student.nombres} ${student.apellidos}` : 'Alumno';
+      const monthName = MONTH_NAMES[target.month];
+
+      if (target.esExento) {
+        addMovementLog({
+          modulo: 'cuotas',
+          tipoAccion: 'pago_cuota_exencion_anulada',
+          titulo: `Exención de Cuota Anulada (${monthName})`,
+          descripcion: `Se anuló la exención de cuota del mes de ${monthName} ${year} para el alumno ${studentName}. El mes volvió a figurar como pendiente de pago.`,
+          usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+          rol: userRole,
+          montoAfectado: 0,
+          referenciaId: target.studentId,
+          referenciaNombre: studentName,
+          detallesAdicionales: { mes: monthName },
+        });
+      } else {
+        addMovementLog({
+          modulo: 'cuotas',
+          tipoAccion: 'pago_cuota_anulado',
+          titulo: `Pago de Cuota Anulado (${monthName})`,
+          descripcion: `Se anuló el pago de $${target.monto.toLocaleString('es-CL')} CLP del mes de ${monthName} ${year} para el alumno ${studentName}.`,
+          usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+          rol: userRole,
+          montoAfectado: target.monto,
+          referenciaId: target.studentId,
+          referenciaNombre: studentName,
+          detallesAdicionales: { mes: monthName, montoAnulado: target.monto },
+        });
+      }
+    }
+
     setConfirmRevokePayment(null);
   };
 
@@ -273,9 +332,16 @@ export const IncomeGridModule: React.FC<IncomeGridModuleProps> = ({
                       <td className="py-3.5 px-4 sticky left-0 bg-white z-10 border-r border-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <span className="font-bold text-slate-900 text-sm block">
-                              {student.nombres} {student.apellidos}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-slate-900 text-sm block">
+                                {student.nombres} {student.apellidos}
+                              </span>
+                              {student.activo === false && (
+                                <span className="text-[10px] font-bold text-slate-500 bg-slate-200 px-1.5 py-0.2 rounded shrink-0">
+                                  Inactivo
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[11px] text-slate-500">
                               {student.rut}
                             </span>
@@ -345,6 +411,51 @@ export const IncomeGridModule: React.FC<IncomeGridModuleProps> = ({
                         }
 
                         if (cellData.status === 'paid') {
+                          // Si el mes fue eximido de pago y saldado
+                          if (cellData.payment?.esExento) {
+                            return (
+                              <td
+                                key={month}
+                                className="py-2.5 px-1.5 text-center border-r border-teal-100 bg-teal-50/70 relative group"
+                              >
+                                <div className="flex flex-col items-center justify-center">
+                                  <button
+                                    onClick={() => {
+                                      setPaymentModalTab('eximir');
+                                      setMotivoExencionInput(cellData.payment?.motivoExencion || 'Beca acordada por directiva');
+                                      setPaymentModalData({
+                                        student,
+                                        month,
+                                        existingPayment: cellData.payment,
+                                      });
+                                    }}
+                                    title={`Mes eximido y saldado. Motivo: ${cellData.payment.motivoExencion || 'Aprobado por directiva'}. Clic para revisar o cambiar.`}
+                                    className="cursor-pointer hover:opacity-80 transition-opacity flex flex-col items-center"
+                                  >
+                                    <span className="font-extrabold text-teal-800 text-xs tabular-nums flex items-center gap-1">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                                      Saldado
+                                    </span>
+                                    <span className="text-[9px] font-bold text-teal-700 bg-teal-100 border border-teal-300 px-1 rounded-sm mt-0.5 shadow-2xs">
+                                      Eximido
+                                    </span>
+                                  </button>
+
+                                  {/* Botón para anular exención */}
+                                  {!isAuditor && cellData.payment && (
+                                    <button
+                                      onClick={() => setConfirmRevokePayment(cellData.payment!)}
+                                      title="Anular exención (volver a cuota pendiente)"
+                                      className="mt-1 w-4 h-4 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-transform hover:scale-110 shadow-xs cursor-pointer"
+                                    >
+                                      <X className="w-2.5 h-2.5 stroke-[3]" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          }
+
                           return (
                             <td
                               key={month}
@@ -495,6 +606,10 @@ export const IncomeGridModule: React.FC<IncomeGridModuleProps> = ({
           <span>Pagado</span>
         </div>
         <div className="flex items-center gap-2">
+          <span className="w-3.5 h-3.5 rounded bg-teal-100 border border-teal-300"></span>
+          <span className="font-semibold text-teal-800">Eximido / Saldado</span>
+        </div>
+        <div className="flex items-center gap-2">
           <span className="w-3.5 h-3.5 rounded bg-sky-100 border border-sky-300"></span>
           <span>Abonado</span>
         </div>
@@ -512,13 +627,19 @@ export const IncomeGridModule: React.FC<IncomeGridModuleProps> = ({
         </div>
       </div>
 
-      {/* 6. MODAL: PAGAR CUOTA INDIVIDUAL CON DETALLES */}
+      {/* 6. MODAL: PAGAR CUOTA O ACEPTAR EXIMIR PAGO (MES SALDADO) */}
       {paymentModalData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden border border-slate-100">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
             <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
               <div>
-                <h3 className="font-bold text-base">Registrar Pago de Cuota</h3>
+                <h3 className="font-bold text-base">
+                  {paymentModalTab === 'eximir'
+                    ? 'Eximir Cuota (Mes Saldado)'
+                    : paymentModalData.isSaldarRestante
+                    ? 'Saldar Cuota Mensual'
+                    : 'Registrar Pago de Cuota'}
+                </h3>
                 <p className="text-xs text-slate-300">
                   {MONTH_NAMES[paymentModalData.month]} {year} · {paymentModalData.student.nombres} {paymentModalData.student.apellidos}
                 </p>
@@ -531,147 +652,308 @@ export const IncomeGridModule: React.FC<IncomeGridModuleProps> = ({
               </button>
             </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const form = e.currentTarget;
-                const nuevoAporte = Number(form.monto.value);
-                const fecha = form.fecha.value;
-                const medio = form.medio.value;
-                const comprobante = form.comprobante.value;
+            {/* Selector de Modo: Registrar Pago vs Aceptar Eximir Pago */}
+            <div className="flex border-b border-slate-200 bg-slate-50">
+              <button
+                type="button"
+                onClick={() => setPaymentModalTab('pago')}
+                className={`flex-1 py-2.5 px-3 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
+                  paymentModalTab === 'pago'
+                    ? 'bg-white text-slate-900 border-b-2 border-slate-900 shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>Pagar / Abonar</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentModalTab('eximir')}
+                className={`flex-1 py-2.5 px-3 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
+                  paymentModalTab === 'eximir'
+                    ? 'bg-white text-teal-800 border-b-2 border-teal-600 shadow-2xs'
+                    : 'text-slate-500 hover:text-teal-700'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
+                <span>Aceptar Eximir Pago (Saldado)</span>
+              </button>
+            </div>
 
-                // If completing an existing partial abono, accumulate the paid amount
-                const yaAbonado = paymentModalData.isSaldarRestante && paymentModalData.existingPayment
-                  ? paymentModalData.existingPayment.monto
-                  : 0;
+            {paymentModalTab === 'pago' ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (isAuditor) return;
+                  const form = e.currentTarget;
+                  const nuevoAporte = Number(form.monto.value);
+                  const fecha = form.fecha.value;
+                  const medio = form.medio.value as 'transferencia' | 'efectivo' | 'deposito' | 'otro';
+                  const comprobante = form.comprobante.value;
 
-                const montoTotalAcumulado = yaAbonado + nuevoAporte;
+                  const yaAbonado = paymentModalData.isSaldarRestante && paymentModalData.existingPayment
+                    ? paymentModalData.existingPayment.monto
+                    : 0;
 
-                const newPay: FeePayment = {
-                  id: paymentModalData.existingPayment?.id || `pay-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-                  studentId: paymentModalData.student.id,
-                  year,
-                  month: paymentModalData.month,
-                  monto: montoTotalAcumulado,
-                  montoEsperado: config.cuotaMensualPorDefecto,
-                  fechaPago: fecha,
-                  medioPago: medio,
-                  numeroComprobante: comprobante || (paymentModalData.isSaldarRestante ? 'SALDO-COMPLETADO' : undefined),
-                };
+                  const montoTotalAcumulado = yaAbonado + nuevoAporte;
 
-                // Remove existing if any, then append
-                const filtered = payments.filter(
-                  (p) =>
-                    !(
-                      p.studentId === paymentModalData.student.id &&
-                      p.year === year &&
-                      p.month === paymentModalData.month
-                    )
-                );
-                onUpdatePayments([...filtered, newPay]);
-                setPaymentModalData(null);
-              }}
-              className="p-6 space-y-4"
-            >
-              {paymentModalData.isSaldarRestante && paymentModalData.existingPayment && (
-                <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl space-y-1 text-xs">
-                  <div className="flex justify-between text-slate-700">
-                    <span>Cuota mensual total:</span>
-                    <span className="font-bold">{formatCurrency(config.cuotaMensualPorDefecto)}</span>
+                  const newPay: FeePayment = {
+                    id: paymentModalData.existingPayment?.id || `pay-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                    studentId: paymentModalData.student.id,
+                    year,
+                    month: paymentModalData.month,
+                    monto: montoTotalAcumulado,
+                    montoEsperado: config.cuotaMensualPorDefecto,
+                    fechaPago: fecha,
+                    medioPago: medio,
+                    numeroComprobante: comprobante || (paymentModalData.isSaldarRestante ? 'SALDO-COMPLETADO' : undefined),
+                    esExento: false,
+                  };
+
+                  const filtered = payments.filter(
+                    (p) =>
+                      !(
+                        p.studentId === paymentModalData.student.id &&
+                        p.year === year &&
+                        p.month === paymentModalData.month
+                      )
+                  );
+                  onUpdatePayments([...filtered, newPay]);
+
+                  // Log de auditoría
+                  addMovementLog({
+                    modulo: 'cuotas',
+                    tipoAccion: paymentModalData.isSaldarRestante ? 'pago_cuota_abono' : 'pago_cuota_creado',
+                    titulo: `${paymentModalData.isSaldarRestante ? 'Abono Completado' : 'Pago de Cuota'} (${MONTH_NAMES[paymentModalData.month]})`,
+                    descripcion: `Se registró pago de $${nuevoAporte.toLocaleString('es-CL')} CLP para la cuota de ${MONTH_NAMES[paymentModalData.month]} ${year} del alumno ${paymentModalData.student.nombres} ${paymentModalData.student.apellidos}. Medio: ${medio}.`,
+                    usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+                    rol: userRole,
+                    montoAfectado: nuevoAporte,
+                    referenciaId: paymentModalData.student.id,
+                    referenciaNombre: `${paymentModalData.student.nombres} ${paymentModalData.student.apellidos}`,
+                    detallesAdicionales: { mes: MONTH_NAMES[paymentModalData.month], comprobante, medio },
+                  });
+
+                  setPaymentModalData(null);
+                }}
+                className="p-6 space-y-4"
+              >
+                {paymentModalData.isSaldarRestante && paymentModalData.existingPayment && (
+                  <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl space-y-1 text-xs">
+                    <div className="flex justify-between text-slate-700">
+                      <span>Cuota mensual total:</span>
+                      <span className="font-bold">{formatCurrency(config.cuotaMensualPorDefecto)}</span>
+                    </div>
+                    <div className="flex justify-between text-sky-800">
+                      <span>Monto ya abonado:</span>
+                      <span className="font-bold">{formatCurrency(paymentModalData.existingPayment.monto)}</span>
+                    </div>
+                    <div className="flex justify-between text-amber-900 font-bold border-t border-sky-200 pt-1">
+                      <span>Saldo restante a saldar:</span>
+                      <span>{formatCurrency(paymentModalData.restante || (config.cuotaMensualPorDefecto - paymentModalData.existingPayment.monto))}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sky-800">
-                    <span>Monto ya abonado:</span>
-                    <span className="font-bold">{formatCurrency(paymentModalData.existingPayment.monto)}</span>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    {paymentModalData.isSaldarRestante
+                      ? 'Monto a Saldar / Abonar ahora ($ CLP)'
+                      : 'Monto a Pagar ($ CLP)'}
+                  </label>
+                  <input
+                    name="monto"
+                    type="number"
+                    required
+                    min={1}
+                    defaultValue={
+                      paymentModalData.restante !== undefined
+                        ? paymentModalData.restante
+                        : config.cuotaMensualPorDefecto
+                    }
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-slate-900"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-1 block">
+                    {paymentModalData.isSaldarRestante
+                      ? 'Se sumará al abono anterior completando el total de la cuota.'
+                      : 'Puedes ingresar el total de la cuota o un monto parcial (abono).'}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Fecha de Pago
+                  </label>
+                  <input
+                    name="fecha"
+                    type="date"
+                    required
+                    defaultValue={new Date().toISOString().split('T')[0]}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Medio de Pago
+                  </label>
+                  <select
+                    name="medio"
+                    defaultValue="transferencia"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900"
+                  >
+                    <option value="transferencia">Transferencia Bancaria</option>
+                    <option value="efectivo">Efectivo</option>
+                    <option value="deposito">Depósito Bancario</option>
+                    <option value="otro">Otro</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    N° Comprobante / Operación (Opcional)
+                  </label>
+                  <input
+                    name="comprobante"
+                    type="text"
+                    placeholder="Ej: TR-89472"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900"
+                  />
+                </div>
+
+                <div className="pt-3 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentModalData(null)}
+                    className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isAuditor}
+                    className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    Confirmar Pago
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* TAB: ACEPTAR EXIMIR PAGO (MES SALDADO) */
+              <div className="p-6 space-y-4">
+                <div className="p-3.5 bg-teal-50 border border-teal-200 rounded-xl space-y-1.5">
+                  <div className="flex items-center gap-2 text-teal-900 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
+                    <span>Aceptar Exención de Cuota (Mes Saldado)</span>
                   </div>
-                  <div className="flex justify-between text-amber-900 font-bold border-t border-sky-200 pt-1">
-                    <span>Saldo restante a saldar:</span>
-                    <span>{formatCurrency(paymentModalData.restante || (config.cuotaMensualPorDefecto - paymentModalData.existingPayment.monto))}</span>
+                  <p className="text-[11px] text-teal-800 leading-relaxed">
+                    Al confirmar la exención de pago para el mes de <strong>{MONTH_NAMES[paymentModalData.month]} {year}</strong>, el alumno <strong>{paymentModalData.student.nombres} {paymentModalData.student.apellidos}</strong> quedará con el mes <strong>100% saldado</strong>. No generará deuda ni figurará moroso en reportes financieros.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Motivo o Justificación de la Exención *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={motivoExencionInput}
+                    onChange={(e) => setMotivoExencionInput(e.target.value)}
+                    placeholder="Ej: Beca acordada por directiva de curso / Caso social"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-600 bg-white"
+                  />
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {['Beca directiva', 'Caso social', 'Beca deportiva', 'Acuerdo general', 'Exoneración puntual'].map((sug) => (
+                      <button
+                        key={sug}
+                        type="button"
+                        onClick={() => setMotivoExencionInput(sug)}
+                        className="text-[10px] bg-slate-100 hover:bg-teal-100 text-slate-700 hover:text-teal-900 px-2 py-0.5 rounded border border-slate-200 cursor-pointer transition-colors"
+                      >
+                        {sug}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              )}
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  {paymentModalData.isSaldarRestante
-                    ? 'Monto a Saldar / Abonar ahora ($ CLP)'
-                    : 'Monto a Pagar ($ CLP)'}
-                </label>
-                <input
-                  name="monto"
-                  type="number"
-                  required
-                  min={1}
-                  defaultValue={
-                    paymentModalData.restante !== undefined
-                      ? paymentModalData.restante
-                      : config.cuotaMensualPorDefecto
-                  }
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-slate-900"
-                />
-                <span className="text-[10px] text-slate-500 mt-1 block">
-                  {paymentModalData.isSaldarRestante
-                    ? 'Se sumará al abono anterior completando el total de la cuota.'
-                    : 'Puedes ingresar el total de la cuota o un monto parcial (abono).'}
-                </span>
-              </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Fecha de Resolución / Aprobación
+                  </label>
+                  <input
+                    id="fechaExencionInput"
+                    type="date"
+                    required
+                    defaultValue={paymentModalData.existingPayment?.fechaPago || new Date().toISOString().split('T')[0]}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-600"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Fecha de Pago
-                </label>
-                <input
-                  name="fecha"
-                  type="date"
-                  required
-                  defaultValue={new Date().toISOString().split('T')[0]}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900"
-                />
-              </div>
+                <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentModalData(null)}
+                    className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isAuditor}
+                    onClick={() => {
+                      if (isAuditor) return;
+                      const motivo = motivoExencionInput.trim() || 'Aprobado por directiva de curso';
+                      const fechaInput = (document.getElementById('fechaExencionInput') as HTMLInputElement)?.value || new Date().toISOString().split('T')[0];
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Medio de Pago
-                </label>
-                <select
-                  name="medio"
-                  defaultValue="transferencia"
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900"
-                >
-                  <option value="transferencia">Transferencia Bancaria</option>
-                  <option value="efectivo">Efectivo</option>
-                  <option value="deposito">Depósito Bancario</option>
-                  <option value="otro">Otro</option>
-                </select>
-              </div>
+                      const exentoPay: FeePayment = {
+                        id: paymentModalData.existingPayment?.id || `pay-ex-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                        studentId: paymentModalData.student.id,
+                        year,
+                        month: paymentModalData.month,
+                        monto: 0,
+                        montoEsperado: 0,
+                        fechaPago: fechaInput,
+                        medioPago: 'otro',
+                        numeroComprobante: 'EXIMIDO-SALDADO',
+                        esExento: true,
+                        motivoExencion: motivo,
+                        observaciones: `Exención autorizada: ${motivo}. Mes saldado.`,
+                      };
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  N° Comprobante / Operación (Opcional)
-                </label>
-                <input
-                  name="comprobante"
-                  type="text"
-                  placeholder="Ej: TR-89472"
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900"
-                />
-              </div>
+                      const filtered = payments.filter(
+                        (p) =>
+                          !(
+                            p.studentId === paymentModalData.student.id &&
+                            p.year === year &&
+                            p.month === paymentModalData.month
+                          )
+                      );
+                      onUpdatePayments([...filtered, exentoPay]);
 
-              <div className="pt-3 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPaymentModalData(null)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs"
-                >
-                  Confirmar Pago
-                </button>
+                      addMovementLog({
+                        modulo: 'cuotas',
+                        tipoAccion: 'pago_cuota_eximido',
+                        titulo: `Cuota Eximida y Saldada (${MONTH_NAMES[paymentModalData.month]})`,
+                        descripcion: `Se aceptó eximir el pago de cuota de ${MONTH_NAMES[paymentModalData.month]} ${year} para el alumno ${paymentModalData.student.nombres} ${paymentModalData.student.apellidos}. El mes queda 100% saldado. Motivo: ${motivo}.`,
+                        usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+                        rol: userRole,
+                        montoAfectado: 0,
+                        referenciaId: paymentModalData.student.id,
+                        referenciaNombre: `${paymentModalData.student.nombres} ${paymentModalData.student.apellidos}`,
+                        detallesAdicionales: { mes: MONTH_NAMES[paymentModalData.month], motivo },
+                      });
+
+                      setPaymentModalData(null);
+                    }}
+                    className="px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Aceptar Eximir Pago (Mes Saldado)</span>
+                  </button>
+                </div>
               </div>
-            </form>
+            )}
           </div>
         </div>
       )}
@@ -795,6 +1077,19 @@ const AbonoMultiModal: React.FC<AbonoModalProps> = ({
     }));
 
     onSavePayments([...cleanedPayments, ...newEntries]);
+
+    addMovementLog({
+      modulo: 'cuotas',
+      tipoAccion: 'pago_cuota_abono',
+      titulo: `Abono Múltiple (${selectedMonths.length} meses)`,
+      descripcion: `Se registró pago múltiple por $${totalCalculado.toLocaleString('es-CL')} CLP para los meses de ${selectedMonths.map((m) => MONTH_NAMES[m]).join(', ')} del alumno ${student.nombres} ${student.apellidos}.`,
+      usuario: 'Gestor',
+      rol: 'admin',
+      montoAfectado: totalCalculado,
+      referenciaId: student.id,
+      referenciaNombre: `${student.nombres} ${student.apellidos}`,
+      detallesAdicionales: { meses: selectedMonths.map((m) => MONTH_NAMES[m]), total: totalCalculado, medioPago },
+    });
   };
 
   return (

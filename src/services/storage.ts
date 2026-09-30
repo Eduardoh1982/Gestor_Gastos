@@ -9,6 +9,8 @@ import {
   MONTH_NAMES,
   GestorUser,
   AuthSession,
+  MovementLog,
+  LogActionType,
 } from '../types';
 
 const STORAGE_KEYS = {
@@ -20,6 +22,7 @@ const STORAGE_KEYS = {
   CATEGORIES: 'tesoreria_categories_v1',
   GESTOR_USERS: 'tesoreria_gestor_users_v1',
   AUTH_SESSION: 'tesoreria_auth_session_v1',
+  MOVEMENT_LOGS: 'tesoreria_movement_logs_v1',
 };
 
 export const DEFAULT_GESTOR_USERS: GestorUser[] = [
@@ -79,6 +82,9 @@ export const DEFAULT_STUDENTS: Student[] = [
     tipoIngreso: 'mid_year',
     mesIngreso: 3, // Abril
     noPagaCuota: false,
+    activo: true,
+    fechaNacimiento: '2012-05-14',
+    fechaIngreso: '2026-04-01',
     observaciones: 'Ingresó en abril trasladado desde otra región',
     creadoEn: '2026-03-25T10:00:00.000Z',
   },
@@ -93,6 +99,9 @@ export const DEFAULT_STUDENTS: Student[] = [
     tipoIngreso: 'full_year',
     mesIngreso: 0,
     noPagaCuota: false,
+    activo: true,
+    fechaNacimiento: '2010-08-20',
+    fechaIngreso: '2026-01-05',
     observaciones: 'Hermano mayor de Martín Herrera',
     creadoEn: '2026-01-10T09:00:00.000Z',
   },
@@ -107,6 +116,9 @@ export const DEFAULT_STUDENTS: Student[] = [
     tipoIngreso: 'full_year',
     mesIngreso: 0,
     noPagaCuota: false,
+    activo: true,
+    fechaNacimiento: '2014-11-12',
+    fechaIngreso: '2026-01-05',
     observaciones: 'Hermano menor de Alexis Herrera (Mismo apoderado)',
     creadoEn: '2026-01-10T09:30:00.000Z',
   },
@@ -121,6 +133,9 @@ export const DEFAULT_STUDENTS: Student[] = [
     tipoIngreso: 'full_year',
     mesIngreso: 0,
     noPagaCuota: false,
+    activo: true,
+    fechaNacimiento: '2011-03-28',
+    fechaIngreso: '2026-01-08',
     observaciones: '',
     creadoEn: '2026-01-12T11:00:00.000Z',
   },
@@ -135,6 +150,9 @@ export const DEFAULT_STUDENTS: Student[] = [
     tipoIngreso: 'full_year',
     mesIngreso: 0,
     noPagaCuota: true, // Exento
+    activo: true,
+    fechaNacimiento: '2013-09-17',
+    fechaIngreso: '2026-01-08',
     observaciones: 'Exento de cuota por acuerdo de directiva (beca de apoyo escolar)',
     creadoEn: '2026-01-15T14:30:00.000Z',
   },
@@ -149,6 +167,9 @@ export const DEFAULT_STUDENTS: Student[] = [
     tipoIngreso: 'full_year',
     mesIngreso: 0,
     noPagaCuota: false,
+    activo: true,
+    fechaNacimiento: '2012-12-04',
+    fechaIngreso: '2026-01-10',
     observaciones: '',
     creadoEn: '2026-01-15T15:00:00.000Z',
   },
@@ -303,8 +324,13 @@ export function saveStoredCategories(categories: ExpenseCategory[]) {
 export function getStoredStudents(): Student[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.STUDENTS);
-    if (!raw) return DEFAULT_STUDENTS;
-    return JSON.parse(raw);
+    const list: Student[] = raw ? JSON.parse(raw) : DEFAULT_STUDENTS;
+    return list.map((s) => ({
+      ...s,
+      activo: s.activo !== undefined ? s.activo : true,
+      fechaNacimiento: s.fechaNacimiento || '',
+      fechaIngreso: s.fechaIngreso || '',
+    }));
   } catch {
     return DEFAULT_STUDENTS;
   }
@@ -395,6 +421,16 @@ export function getMonthlyStatus(
     (p) => p.studentId === student.id && p.year === year && p.month === monthIndex
   );
 
+  // Si el mes fue eximido de pago, queda 100% saldado sin deuda pendiente
+  if (payment?.esExento) {
+    return {
+      status: 'paid',
+      paidAmount: payment.monto || 0,
+      expectedAmount: 0,
+      payment,
+    };
+  }
+
   const expectedAmount = payment?.montoEsperado ?? expectedFee;
   const paidAmount = payment?.monto ?? 0;
 
@@ -403,6 +439,12 @@ export function getMonthlyStatus(
   } else if (paidAmount > 0 && paidAmount < expectedAmount) {
     return { status: 'partial', paidAmount, expectedAmount, payment };
   } else {
+    // Si el alumno está inactivo y no tiene pago registrado para este mes,
+    // figura como 'not_applicable' para no generar deuda pendiente en los reportes,
+    // manteniendo intactos en balances los meses que sí pagó
+    if (student.activo === false) {
+      return { status: 'not_applicable', paidAmount: 0, expectedAmount: 0, payment };
+    }
     return { status: 'pending', paidAmount: 0, expectedAmount, payment };
   }
 }
@@ -433,6 +475,23 @@ export function getStudentAnnualSummary(
       pendingMonthsCount: 0,
       totalExpected: 0,
       totalPaid: 0,
+      totalDebt: 0,
+      isUpToDate: true,
+    };
+  }
+
+  // Si el alumno está inactivo: sus pagos históricos se preservan en los balances,
+  // pero no acumula deuda activa ni meses pendientes para los reportes de cobranza
+  if (student.activo === false) {
+    const studentPayments = payments.filter((p) => p.studentId === student.id && p.year === year);
+    const paidSum = studentPayments.reduce((acc, p) => acc + p.monto, 0);
+    return {
+      student,
+      applicableMonthsCount: 0,
+      paidMonthsCount: studentPayments.length,
+      pendingMonthsCount: 0,
+      totalExpected: paidSum,
+      totalPaid: paidSum,
       totalDebt: 0,
       isUpToDate: true,
     };
@@ -514,7 +573,116 @@ export function clearStoredAuthSession() {
   localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
 }
 
-// Reset data to defaults
+export const DEFAULT_MOVEMENT_LOGS: MovementLog[] = [
+  {
+    id: 'log-seed-1',
+    fechaHora: '2026-03-05T10:15:00.000Z',
+    timestamp: new Date('2026-03-05T10:15:00.000Z').getTime(),
+    modulo: 'cuotas',
+    tipoAccion: 'pago_cuota_creado',
+    titulo: 'Pago de Cuota Marzo Registrado',
+    descripcion: 'Se registró pago de cuota Marzo ($3.000) para alumno Alexis Herrera mediante Transferencia Bancaria (TR-10293).',
+    usuario: 'Administrador General',
+    rol: 'admin',
+    montoAfectado: 3000,
+    referenciaId: 'stu-2',
+    referenciaNombre: 'Alexis Herrera',
+    detallesAdicionales: { mes: 'Marzo', comprobante: 'TR-10293', medio: 'transferencia' },
+  },
+  {
+    id: 'log-seed-2',
+    fechaHora: '2026-03-12T14:30:00.000Z',
+    timestamp: new Date('2026-03-12T14:30:00.000Z').getTime(),
+    modulo: 'gastos',
+    tipoAccion: 'gasto_creado',
+    titulo: 'Rendición de Gasto Ingresada',
+    descripcion: 'Compra de artículos de aseo y desinfectantes para la sala de clases. Proveedor: Dimerc S.A., Boleta: B-49201.',
+    usuario: 'Administrador General',
+    rol: 'admin',
+    montoAfectado: 24990,
+    referenciaId: 'exp-seed-1',
+    referenciaNombre: 'Dimerc S.A.',
+    detallesAdicionales: { categoria: 'Limpieza y Aseo', boleta: 'B-49201' },
+  },
+  {
+    id: 'log-seed-3',
+    fechaHora: '2026-03-20T11:00:00.000Z',
+    timestamp: new Date('2026-03-20T11:00:00.000Z').getTime(),
+    modulo: 'ingresos_extra',
+    tipoAccion: 'ingreso_extra_creado',
+    titulo: 'Nueva Actividad Extraordinaria Creada',
+    descripcion: 'Se habilitó cobro de "Rifa Pro-Paseo Fin de Año" con monto fijo de $5.000 por alumno.',
+    usuario: 'Administrador General',
+    rol: 'admin',
+    montoAfectado: 5000,
+    referenciaNombre: 'Rifa Pro-Paseo',
+    detallesAdicionales: { tipoControl: 'fijo_por_alumno', montoPorAlumno: 5000 },
+  },
+  {
+    id: 'log-seed-4',
+    fechaHora: '2026-03-25T16:45:00.000Z',
+    timestamp: new Date('2026-03-25T16:45:00.000Z').getTime(),
+    modulo: 'cuotas',
+    tipoAccion: 'pago_cuota_abono',
+    titulo: 'Abono Parcial Registrado',
+    descripcion: 'Se registró abono parcial de $1.500 para cuota de Abril del alumno Martín Herrera.',
+    usuario: 'Administrador General',
+    rol: 'admin',
+    montoAfectado: 1500,
+    referenciaId: 'stu-6',
+    referenciaNombre: 'Martín Herrera',
+    detallesAdicionales: { mes: 'Abril', saldoRestante: 1500 },
+  },
+];
+
+export function getStoredMovementLogs(): MovementLog[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.MOVEMENT_LOGS);
+    if (!raw) {
+      saveStoredMovementLogs(DEFAULT_MOVEMENT_LOGS);
+      return DEFAULT_MOVEMENT_LOGS;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      saveStoredMovementLogs(DEFAULT_MOVEMENT_LOGS);
+      return DEFAULT_MOVEMENT_LOGS;
+    }
+    return parsed;
+  } catch {
+    return DEFAULT_MOVEMENT_LOGS;
+  }
+}
+
+export function saveStoredMovementLogs(logs: MovementLog[]) {
+  try {
+    // Keep up to 1000 latest logs
+    const trimmed = logs.slice(0, 1000);
+    localStorage.setItem(STORAGE_KEYS.MOVEMENT_LOGS, JSON.stringify(trimmed));
+  } catch (e) {
+    console.error('Error saving movement logs', e);
+  }
+}
+
+export function addMovementLog(
+  entry: Omit<MovementLog, 'id' | 'fechaHora' | 'timestamp'>
+): MovementLog {
+  const now = new Date();
+  const newLog: MovementLog = {
+    id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    fechaHora: now.toISOString(),
+    timestamp: now.getTime(),
+    ...entry,
+  };
+  const existing = getStoredMovementLogs();
+  const updated = [newLog, ...existing];
+  saveStoredMovementLogs(updated);
+  return newLog;
+}
+
+export function clearStoredMovementLogs() {
+  localStorage.setItem(STORAGE_KEYS.MOVEMENT_LOGS, JSON.stringify([]));
+}
+
 export function resetAllDataToDefaults() {
   localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(DEFAULT_CONFIG));
   localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(DEFAULT_STUDENTS));
@@ -523,6 +691,7 @@ export function resetAllDataToDefaults() {
   localStorage.setItem(STORAGE_KEYS.EXTRA_INCOMES, JSON.stringify(DEFAULT_EXTRA_INCOMES));
   localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
   localStorage.setItem(STORAGE_KEYS.GESTOR_USERS, JSON.stringify(DEFAULT_GESTOR_USERS));
+  localStorage.setItem(STORAGE_KEYS.MOVEMENT_LOGS, JSON.stringify(DEFAULT_MOVEMENT_LOGS));
 }
 
 // Export all database as JSON
@@ -535,6 +704,7 @@ export function exportAllDataAsJson(): string {
     extraIncomes: getStoredExtraIncomes(),
     categories: getStoredCategories(),
     gestorUsers: getStoredGestorUsers(),
+    movementLogs: getStoredMovementLogs(),
     exportedAt: new Date().toISOString(),
   };
   return JSON.stringify(data, null, 2);
@@ -551,6 +721,7 @@ export function importAllDataFromJson(jsonStr: string): boolean {
     if (data.extraIncomes) saveStoredExtraIncomes(data.extraIncomes);
     if (data.categories) saveStoredCategories(data.categories);
     if (data.gestorUsers) saveStoredGestorUsers(data.gestorUsers);
+    if (data.movementLogs) saveStoredMovementLogs(data.movementLogs);
     return true;
   } catch (e) {
     console.error('Failed to import JSON data', e);

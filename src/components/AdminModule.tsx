@@ -19,6 +19,9 @@ import {
   Edit2,
   Trash2,
   X,
+  Image as ImageIcon,
+  RotateCcw,
+  Check,
 } from 'lucide-react';
 import { CourseConfig, ExpenseCategory, UserRole, GestorUser } from '../types';
 import {
@@ -27,6 +30,7 @@ import {
   resetAllDataToDefaults,
   formatCurrency,
 } from '../services/storage';
+import { getEffectiveLogo } from '../assets/logo';
 
 interface AdminModuleProps {
   config: CourseConfig;
@@ -131,6 +135,8 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
   const [nombreCurso, setNombreCurso] = useState(config.nombreCurso);
   const [institucion, setInstitucion] = useState(config.institucion);
   const [cuotaMensual, setCuotaMensual] = useState(config.cuotaMensualPorDefecto);
+  const [logoUrl, setLogoUrl] = useState<string>(config.logoUrl || '');
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
 
   // Bank details
   const [banco, setBanco] = useState(config.datosBancarios.banco);
@@ -140,6 +146,45 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
   const [titularRut, setTitularRut] = useState(config.datosBancarios.titularRut);
   const [emailConfirmacion, setEmailConfirmacion] = useState(config.datosBancarios.emailConfirmacion);
 
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoUploadError(null);
+
+    // Limit to 2.5 MB
+    if (file.size > 2.5 * 1024 * 1024) {
+      setLogoUploadError('La imagen seleccionada supera los 2.5 MB. Elige una imagen más comprimida.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setLogoUrl(base64);
+      onUpdateConfig({
+        ...config,
+        logoUrl: base64,
+      });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    };
+    reader.onerror = () => {
+      setLogoUploadError('Ocurrió un error al procesar la imagen seleccionada.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleResetLogoToDefault = () => {
+    setLogoUrl('');
+    setLogoUploadError(null);
+    onUpdateConfig({
+      ...config,
+      logoUrl: undefined,
+    });
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 3000);
+  };
+
   const handleSaveGeneral = (e: React.FormEvent) => {
     e.preventDefault();
     const updated: CourseConfig = {
@@ -147,6 +192,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
       nombreCurso: nombreCurso.trim(),
       institucion: institucion.trim(),
       cuotaMensualPorDefecto: Number(cuotaMensual),
+      logoUrl: logoUrl.trim() || undefined,
       datosBancarios: {
         banco: banco.trim(),
         tipoCuenta: tipoCuenta.trim(),
@@ -703,6 +749,82 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
           </div>
         </div>
 
+        {/* LOGO INSTITUCIONAL / AGRUPACIÓN */}
+        <div className="pt-4 border-t border-slate-200 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-indigo-600" />
+                Logo Institucional del Curso / Agrupación
+              </h4>
+              <p className="text-xs text-slate-500">
+                Sube la insignia o logo oficial. Se actualiza de inmediato en el Login, en la barra superior y en el Reporte PDF.
+              </p>
+            </div>
+
+            {logoUrl && (
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 inline-flex items-center gap-1 self-start sm:self-auto">
+                <Check className="w-3.5 h-3.5" />
+                Logo personalizado activo
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-5 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+            {/* Logo Preview */}
+            <div className="relative w-24 h-24 rounded-2xl overflow-hidden border-2 border-emerald-500/40 bg-white shadow-md p-1 shrink-0 flex items-center justify-center">
+              <img
+                src={getEffectiveLogo(logoUrl)}
+                alt="Vista previa del logo"
+                className="w-full h-full object-contain rounded-xl"
+              />
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex-1 space-y-2 text-center sm:text-left">
+              <div className="flex flex-wrap items-center gap-2.5 justify-center sm:justify-start">
+                <label className={`inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs ${
+                  currentRole === 'auditor' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                }`}>
+                  <Upload className="w-4 h-4" />
+                  <span>Subir Nueva Imagen de Logo</span>
+                  <input
+                    type="file"
+                    accept="image/png, image/jpeg, image/jpg, image/webp, image/svg+xml"
+                    onChange={handleLogoFileChange}
+                    className="hidden"
+                    disabled={currentRole === 'auditor'}
+                  />
+                </label>
+
+                {logoUrl && (
+                  <button
+                    type="button"
+                    onClick={handleResetLogoToDefault}
+                    disabled={currentRole === 'auditor'}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold border border-slate-300 transition-colors cursor-pointer disabled:opacity-50"
+                    title="Restablecer al emblema predeterminado"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Restablecer Emblema Predeterminado</span>
+                  </button>
+                )}
+              </div>
+
+              <p className="text-[11px] text-slate-500">
+                Formatos permitidos: PNG, JPG, WebP o SVG (Recomendado: imagen cuadrada o circular con fondo transparente o blanco, máx. 2.5 MB).
+              </p>
+
+              {logoUploadError && (
+                <p className="text-xs text-red-600 font-semibold flex items-center gap-1 mt-1 justify-center sm:justify-start">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{logoUploadError}</span>
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Datos Bancarios para WhatsApp */}
         <div className="pt-4 border-t border-slate-200 space-y-4">
           <div>
@@ -846,7 +968,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
             Descargar Respaldo JSON
           </button>
 
-          <label className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-xs cursor-pointer">
+           <label className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-xs cursor-pointer">
             <Upload className="w-4 h-4 text-slate-500" />
             Restaurar desde JSON
             <input
@@ -855,15 +977,15 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
               onChange={handleFileImport}
               className="hidden"
             />
-          </label>
+          </label> 
 
-          <button
+           <button
             onClick={handleResetDefaults}
             className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 shadow-xs cursor-pointer ml-auto"
           >
             <RefreshCcw className="w-4 h-4" />
             Restablecer Datos de Demostración
-          </button>
+          </button> 
         </div>
       </div>
 

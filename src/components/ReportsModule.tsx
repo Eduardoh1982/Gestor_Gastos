@@ -5,6 +5,7 @@ import {
   TrendingDown,
   DollarSign,
   FileSpreadsheet,
+  FileText,
   CheckCircle2,
   AlertTriangle,
   PieChart as PieChartIcon,
@@ -37,6 +38,7 @@ import {
   formatCurrency,
 } from '../services/storage';
 import { exportCourseFinancialReportToExcel } from '../services/excel';
+import { generateCourseFinancialPdfReport } from '../services/pdfReport';
 import { openWhatsAppChat, openExtraIncomeWhatsAppChat } from '../services/whatsapp';
 
 interface ReportsModuleProps {
@@ -97,10 +99,16 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
     let alDia = 0;
     let conDeuda = 0;
     let exentos = 0;
+    let inactivos = 0;
     let totalEsperadoCuotas = 0;
     let deudaTotal = 0;
 
     students.forEach((s) => {
+      if (s.activo === false) {
+        inactivos++;
+        return;
+      }
+
       const summary = getStudentAnnualSummary(
         s,
         year,
@@ -129,6 +137,7 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
       alDia,
       conDeuda,
       exentos,
+      inactivos,
       totalEsperadoCuotas,
       deudaTotal,
       porcentajeCumplimiento,
@@ -151,23 +160,33 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
           ? Math.round(inc.monto / Math.max(1, inc.alumnosPagados?.length || 1))
           : 5000);
       const paidStudentIds = inc.alumnosPagados || [];
-      const totalStudents = students.length;
-      const paidCount = paidStudentIds.length;
-      const pendingCount = Math.max(0, totalStudents - paidCount);
+      const exemptStudentIds = inc.alumnosExentos || [];
+      const relevantStudents = students.filter(
+        (s) => s.activo !== false || paidStudentIds.includes(s.id)
+      );
+      const totalStudents = relevantStudents.length;
+      const exemptCount = relevantStudents.filter((s) => exemptStudentIds.includes(s.id)).length;
+      const obligadosCount = Math.max(0, totalStudents - exemptCount);
+      const paidCount = relevantStudents.filter(
+        (s) => paidStudentIds.includes(s.id) && !exemptStudentIds.includes(s.id)
+      ).length;
+      const pendingCount = Math.max(0, obligadosCount - paidCount);
 
-      const totalEsperado = totalStudents * fixedAmount;
+      const totalEsperado = obligadosCount * fixedAmount;
       const totalRecaudado = paidCount * fixedAmount;
       const totalPendiente = pendingCount * fixedAmount;
       const porcentaje =
         totalEsperado > 0 ? Math.round((totalRecaudado / totalEsperado) * 100) : 0;
 
       // Student level breakdown with payment status
-      const studentsBreakdown = students.map((s) => {
-        const isPaid = paidStudentIds.includes(s.id);
+      const studentsBreakdown = relevantStudents.map((s) => {
+        const isExempt = exemptStudentIds.includes(s.id);
+        const isPaid = paidStudentIds.includes(s.id) && !isExempt;
         return {
           student: s,
           isPaid,
-          monto: fixedAmount,
+          isExempt,
+          monto: isExempt ? 0 : fixedAmount,
         };
       });
 
@@ -178,6 +197,8 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
         fecha: inc.fecha,
         fixedAmount,
         totalStudents,
+        exemptCount,
+        obligadosCount,
         paidCount,
         pendingCount,
         totalEsperado,
@@ -272,6 +293,8 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
     });
   }, [yearPayments, yearExtraIncomes, yearExpenses, students, year, config.cuotaMensualPorDefecto]);
 
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
   const handleExport = () => {
     exportCourseFinancialReportToExcel(
       year,
@@ -283,6 +306,25 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
     );
   };
 
+  const handleExportPdf = async () => {
+    try {
+      setIsGeneratingPdf(true);
+      await generateCourseFinancialPdfReport({
+        year,
+        config,
+        students,
+        payments,
+        expenses,
+        extraIncomes,
+      });
+    } catch (err) {
+      console.error('Error generando reporte PDF:', err);
+      alert('Hubo un inconveniente al generar el reporte en PDF. Por favor, reintenta.');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   // Max value helper for charts
   const maxMonthValue = Math.max(
     ...monthlyData.map((d) => Math.max(d.totalIngresos, d.gastos, 10000))
@@ -290,7 +332,7 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Header and Excel Button */}
+      {/* Header and Excel / PDF Buttons */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
@@ -302,13 +344,26 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={handleExport}
-          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          Exportar Informe a Excel (.xlsx)
-        </button>
+        <div className="flex items-center flex-wrap gap-2.5">
+          <button
+            onClick={handleExportPdf}
+            disabled={isGeneratingPdf}
+            className="flex items-center gap-2 px-4 py-2.5 bg-red-700 hover:bg-red-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+            title="Emitir informe completo consolidado en formato PDF descargable"
+          >
+            <FileText className="w-4 h-4 text-red-100" />
+            <span>{isGeneratingPdf ? 'Generando PDF...' : 'Emitir Reporte PDF'}</span>
+          </button>
+
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+            title="Exportar informe con matrices a Microsoft Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Exportar a Excel (.xlsx)
+          </button>
+        </div>
       </div>
 
       {/* 1. EXECUTIVE FINANCIAL SUMMARY CARDS */}
@@ -748,11 +803,13 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
                                 Estado nominal por alumno:
                               </span>
                               <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
-                                {act.studentsBreakdown.map(({ student, isPaid, monto }) => (
+                                {act.studentsBreakdown.map(({ student, isPaid, isExempt, monto }) => (
                                   <div
                                     key={student.id}
                                     className={`flex items-center justify-between p-2 rounded-lg text-xs border ${
-                                      isPaid
+                                      isExempt
+                                        ? 'bg-purple-50/60 border-purple-200'
+                                        : isPaid
                                         ? 'bg-emerald-50/60 border-emerald-200'
                                         : 'bg-amber-50/60 border-amber-200'
                                     }`}
@@ -770,7 +827,12 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
                                     </div>
 
                                     <div className="flex items-center gap-2">
-                                      {isPaid ? (
+                                      {isExempt ? (
+                                        <span className="flex items-center gap-1 text-[11px] font-bold text-purple-800 bg-purple-100 px-2 py-0.5 rounded">
+                                          <CheckCircle className="w-3 h-3 text-purple-600" />
+                                          Exento de Cobro
+                                        </span>
+                                      ) : isPaid ? (
                                         <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
                                           <CheckCircle className="w-3 h-3 text-emerald-600" />
                                           Pagado

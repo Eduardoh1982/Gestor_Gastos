@@ -28,6 +28,9 @@ export interface Student {
   tipoIngreso: EntryType;
   mesIngreso: MonthIndex; // 0 = Enero, 1 = Feb, etc. Relevant if tipoIngreso === 'mid_year'
   noPagaCuota: boolean; // Exempt / Scholarship flag ("No paga cuota")
+  activo?: boolean; // Activo (true) o Inactivo/Retirado (false)
+  fechaNacimiento?: string; // Formato YYYY-MM-DD
+  fechaIngreso?: string; // Formato YYYY-MM-DD
   observaciones?: string;
   creadoEn: string;
 }
@@ -46,6 +49,9 @@ export interface FeePayment {
   numeroComprobante?: string;
   comprobanteUrl?: string; // Base64 or image URL
   observaciones?: string;
+  esExento?: boolean; // True si el mes fue eximido de pago y saldado
+  motivoExencion?: string; // Motivo de la exención (ej. Beca, Caso especial, Aprobado directiva)
+  eximidoPor?: string; // Nombre o rol de quien aprobó la exención
 }
 
 export interface ExpenseCategory {
@@ -84,6 +90,40 @@ export interface ExtraIncome {
   tipoCobro?: 'fijo_por_alumno' | 'general';
   montoPorAlumno?: number;
   alumnosPagados?: string[]; // IDs de los alumnos que han pagado
+  alumnosExentos?: string[]; // IDs de los alumnos exentos de este cobro extraordinario
+}
+
+export type LogActionType =
+  | 'pago_cuota_creado'
+  | 'pago_cuota_anulado'
+  | 'pago_cuota_abono'
+  | 'pago_cuota_eximido'
+  | 'pago_cuota_exencion_anulada'
+  | 'gasto_creado'
+  | 'gasto_editado'
+  | 'gasto_eliminado'
+  | 'ingreso_extra_creado'
+  | 'ingreso_extra_editado'
+  | 'ingreso_extra_eliminado'
+  | 'ingreso_extra_pago_alumno'
+  | 'ingreso_extra_exencion_alumno'
+  | 'sistema_reset'
+  | 'sistema_config';
+
+export interface MovementLog {
+  id: string;
+  fechaHora: string; // Formato ISO
+  timestamp: number;
+  modulo: 'cuotas' | 'gastos' | 'ingresos_extra' | 'sistema';
+  tipoAccion: LogActionType;
+  titulo: string;
+  descripcion: string;
+  usuario: string; // Nombre o username del gestor
+  rol: UserRole;
+  montoAfectado?: number;
+  referenciaId?: string; // id del alumno, gasto o ingreso extra
+  referenciaNombre?: string; // Nombre del alumno, proveedor o concepto
+  detallesAdicionales?: Record<string, any>;
 }
 
 export interface GestorUser {
@@ -110,6 +150,7 @@ export interface CourseConfig {
   availableYears: number[];
   cuotaMensualPorDefecto: number;
   datosBancarios: BankAccountDetails;
+  logoUrl?: string; // Custom uploaded logo in base64 or URL
 }
 
 export type UserRole = 'admin' | 'auditor' | 'apoderado';

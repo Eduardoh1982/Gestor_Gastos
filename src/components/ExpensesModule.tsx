@@ -20,7 +20,7 @@ import {
   RotateCw,
 } from 'lucide-react';
 import { Expense, ExpenseCategory, UserRole } from '../types';
-import { formatCurrency } from '../services/storage';
+import { formatCurrency, addMovementLog } from '../services/storage';
 
 interface ExpensesModuleProps {
   year: number;
@@ -190,6 +190,19 @@ export const ExpensesModule: React.FC<ExpensesModuleProps> = ({
         comprobanteUrl: formComprobanteUrl,
       };
       onUpdateExpenses([newExp, ...expenses]);
+
+      addMovementLog({
+        modulo: 'gastos',
+        tipoAccion: 'gasto_creado',
+        titulo: `Rendición de Gasto Registrada ($${Number(formMonto).toLocaleString('es-CL')})`,
+        descripcion: `Gasto "${newExp.descripcion}" registrado. Proveedor: ${newExp.proveedor || 'N/A'}, Boleta: ${newExp.numeroBoleta || 'S/N'}, Categoría: ${catNombre}.`,
+        usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+        rol: userRole,
+        montoAfectado: Number(formMonto),
+        referenciaId: newExp.id,
+        referenciaNombre: newExp.proveedor || newExp.descripcion,
+        detallesAdicionales: { categoria: catNombre, boleta: newExp.numeroBoleta, fecha: formFecha },
+      });
     } else if (modalMode === 'edit' && editingExpense) {
       const updated = expenses.map((item) =>
         item.id === editingExpense.id
@@ -208,6 +221,18 @@ export const ExpensesModule: React.FC<ExpensesModuleProps> = ({
           : item
       );
       onUpdateExpenses(updated);
+
+      addMovementLog({
+        modulo: 'gastos',
+        tipoAccion: 'gasto_editado',
+        titulo: `Gasto Modificado: ${formDescripcion.trim()}`,
+        descripcion: `Se actualizaron los datos del gasto. Nuevo monto: $${Number(formMonto).toLocaleString('es-CL')} CLP. Proveedor: ${formProveedor.trim() || 'N/A'}.`,
+        usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+        rol: userRole,
+        montoAfectado: Number(formMonto),
+        referenciaId: editingExpense.id,
+        referenciaNombre: formProveedor.trim() || formDescripcion.trim(),
+      });
     }
 
     setModalMode(null);
@@ -216,7 +241,23 @@ export const ExpensesModule: React.FC<ExpensesModuleProps> = ({
 
   const handleDeleteExpense = (id: string) => {
     if (isAuditor) return;
+    const target = expenses.find((e) => e.id !== id);
     onUpdateExpenses(expenses.filter((e) => e.id !== id));
+
+    if (target) {
+      addMovementLog({
+        modulo: 'gastos',
+        tipoAccion: 'gasto_eliminado',
+        titulo: `Gasto Eliminado: ${target.descripcion}`,
+        descripcion: `Se eliminó el registro de gasto por $${target.monto.toLocaleString('es-CL')} CLP (Boleta: ${target.numeroBoleta || 'S/N'}, Proveedor: ${target.proveedor || 'N/A'}).`,
+        usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+        rol: userRole,
+        montoAfectado: target.monto,
+        referenciaId: target.id,
+        referenciaNombre: target.proveedor || target.descripcion,
+      });
+    }
+
     setDeletingExpense(null);
   };
 

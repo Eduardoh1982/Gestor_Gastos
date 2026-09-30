@@ -12,13 +12,15 @@ import {
   Users,
 } from 'lucide-react';
 import { GestorUser, Student, CourseConfig, AuthSession } from '../types';
-import { APP_LOGO } from '../assets/logo';
+import { getEffectiveLogo } from '../assets/logo';
 
 interface LoginScreenProps {
   gestorUsers: GestorUser[];
   students: Student[];
   config: CourseConfig;
   onLoginSuccess: (session: AuthSession) => void;
+  timeoutNotice?: string | null;
+  onClearTimeoutNotice?: () => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
@@ -26,6 +28,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   students,
   config,
   onLoginSuccess,
+  timeoutNotice,
+  onClearTimeoutNotice,
 }) => {
   const [activeTab, setActiveTab] = useState<'gestor' | 'apoderado'>('gestor');
 
@@ -110,7 +114,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       <div className="text-center mb-8 space-y-3">
         <div className="relative mx-auto w-24 h-24 rounded-2xl p-1 bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-500 shadow-2xl shadow-emerald-500/20 backdrop-blur-sm border border-emerald-400/40 overflow-hidden">
           <img
-            src={APP_LOGO}
+            src={getEffectiveLogo(config.logoUrl)}
             alt={`${config.nombreCurso} · ${config.institucion}`}
             className="w-full h-full object-cover rounded-xl bg-white"
           />
@@ -124,6 +128,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           </p>
         </div>
       </div>
+
+      {/* Notice when auto-logged out due to timeout */}
+      {timeoutNotice && (
+        <div className="w-full max-w-md p-4 bg-amber-500/20 border border-amber-400/60 text-amber-200 rounded-2xl text-xs flex items-start gap-3 backdrop-blur-md shadow-xl animate-in fade-in">
+          <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <strong className="block text-amber-300 font-bold mb-0.5">
+              Sesión cerrada automáticamente (Seguridad)
+            </strong>
+            <span className="text-amber-100">{timeoutNotice}</span>
+          </div>
+          {onClearTimeoutNotice && (
+            <button
+              onClick={onClearTimeoutNotice}
+              className="text-amber-300 hover:text-white cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Main Card */}
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">

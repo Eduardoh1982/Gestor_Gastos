@@ -14,9 +14,10 @@ import {
   Calendar,
   CheckCircle2,
   ChevronRight,
+  Clock,
 } from 'lucide-react';
 import { UserRole, CourseConfig, AuthSession } from '../types';
-import { APP_LOGO } from '../assets/logo';
+import { getEffectiveLogo } from '../assets/logo';
 
 interface NavbarProps {
   currentTab: string;
@@ -32,6 +33,8 @@ interface NavbarProps {
   studentsCount?: number;
   expensesCount?: number;
   extraIncomesCount?: number;
+  secondsRemaining?: number;
+  onResetTimer?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -48,13 +51,15 @@ export const Navbar: React.FC<NavbarProps> = ({
   studentsCount = 0,
   expensesCount = 0,
   extraIncomesCount = 0,
+  secondsRemaining,
+  onResetTimer,
 }) => {
   const navItems = [
     {
       id: 'ingresos',
-      label: 'Cuotas (Grilla)',
+      label: 'Cuotas',
       icon: Grid3X3,
-      badge: '12 Meses',
+      //badge: '12 Meses',
       badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
     },
     {
@@ -82,7 +87,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'reportes',
       label: 'Reportes y Balances',
       icon: BarChart3,
-      badge: 'Balances y Gráficos',
+      //badge: 'Balances y Gráficos',
       badgeColor: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
     },
     {
@@ -145,7 +150,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl overflow-hidden border border-emerald-400/40 bg-slate-800 shadow-md shadow-emerald-500/20 shrink-0 p-0.5">
                 <img
-                  src={APP_LOGO}
+                  src={getEffectiveLogo(config.logoUrl)}
                   alt={`${config.nombreCurso} · ${config.institucion}`}
                   className="w-full h-full object-cover rounded-lg bg-white"
                 />
@@ -243,6 +248,27 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
               </div>
 
+              {/* Session Permanence Auto-Logout Timer (Max 3 mins) */}
+              {secondsRemaining !== undefined && (
+                <div
+                  onClick={onResetTimer}
+                  title="Tiempo de permanencia de sesión (máximo 3 minutos de inactividad). Haz clic o interactúa para reiniciar el contador."
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold transition-all cursor-pointer ${
+                    secondsRemaining <= 45
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-400 shadow-sm shadow-amber-500/30 animate-pulse'
+                      : 'bg-slate-900/80 text-slate-300 border-slate-700 hover:border-slate-500 hover:text-white'
+                  }`}
+                >
+                  <Clock className={`w-3.5 h-3.5 ${secondsRemaining <= 45 ? 'text-amber-400 animate-spin' : 'text-slate-400'}`} />
+                  <span className="hidden sm:inline text-[11px] font-sans font-medium text-slate-400">
+                    Sesión:
+                  </span>
+                  <span>
+                    {Math.floor(secondsRemaining / 60)}:{(secondsRemaining % 60).toString().padStart(2, '0')}
+                  </span>
+                </div>
+              )}
+
               {/* Logout Button */}
               <button
                 onClick={onLogout}
@@ -319,7 +345,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               Período: <strong>{selectedYear}</strong>
             </span>
             <span className="bg-slate-900/60 px-2 py-0.5 rounded border border-slate-700">
-              Curso: <strong>{config.nombreCurso}</strong>
+              Registro de: <strong>{config.nombreCurso}</strong>
             </span>
           </div>
         </div>

@@ -216,17 +216,20 @@ Email: ${config.datosBancarios.emailConfirmacion}`;
 
   // Rifas and cuotas extraordinarias for this active student
   const studentExtraActivities = yearExtraIncomes.map((inc) => {
+    const isExempt = inc.alumnosExentos?.includes(activeStudent.id) || false;
     const isPaid = inc.alumnosPagados?.includes(activeStudent.id) || false;
     return {
       income: inc,
+      isExempt,
       isPaid,
-      monto: inc.montoPorAlumno || 0,
+      monto: isExempt ? 0 : (inc.montoPorAlumno || 0),
+      rawMonto: inc.montoPorAlumno || 0,
     };
   });
 
   const extraDebt = studentExtraActivities
-    .filter((a) => !a.isPaid)
-    .reduce((sum, a) => sum + a.monto, 0);
+    .filter((a) => !a.isPaid && !a.isExempt)
+    .reduce((sum, a) => sum + a.rawMonto, 0);
 
   const totalPupilDebt = summary.totalDebt + extraDebt;
 
@@ -515,9 +518,14 @@ Email: ${config.datosBancarios.emailConfirmacion}`;
 
                 <div className="flex items-center gap-3">
                   <span className="font-mono font-bold text-sm">
-                    {formatCurrency(act.monto)}
+                    {formatCurrency(act.isExempt ? 0 : act.rawMonto)}
                   </span>
-                  {act.isPaid ? (
+                  {act.isExempt ? (
+                    <span className="inline-flex items-center gap-1 text-purple-700 font-bold bg-purple-100 border border-purple-200 px-2.5 py-1 rounded-lg">
+                      <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+                      Exento de Pago
+                    </span>
+                  ) : act.isPaid ? (
                     <span className="inline-flex items-center gap-1 text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
                       <Check className="w-3.5 h-3.5" />
                       Pagado

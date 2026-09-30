@@ -14,9 +14,10 @@ import {
   CheckCircle2,
   MessageCircle,
   Check,
+  ShieldCheck,
 } from 'lucide-react';
 import { ExtraIncome, Student, CourseConfig, UserRole } from '../types';
-import { formatCurrency } from '../services/storage';
+import { formatCurrency, addMovementLog } from '../services/storage';
 import { cleanPhoneNumber } from '../services/whatsapp';
 
 interface ExtraIncomeModuleProps {
@@ -43,7 +44,7 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
   const [editingIncome, setEditingIncome] = useState<ExtraIncome | null>(null);
   const [deletingIncome, setDeletingIncome] = useState<ExtraIncome | null>(null);
   const [trackingIncome, setTrackingIncome] = useState<ExtraIncome | null>(null);
-  const [trackingFilter, setTrackingFilter] = useState<'all' | 'paid' | 'pending'>('all');
+  const [trackingFilter, setTrackingFilter] = useState<'all' | 'paid' | 'pending' | 'exempt'>('all');
 
   // Form states
   const [formConcepto, setFormConcepto] = useState('Rifa');
@@ -137,8 +138,21 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
         tipoCobro: formTipoCobro,
         montoPorAlumno: formTipoCobro === 'fijo_por_alumno' ? Number(formMontoPorAlumno) : undefined,
         alumnosPagados: formTipoCobro === 'fijo_por_alumno' ? formAlumnosPagados : undefined,
+        alumnosExentos: formTipoCobro === 'fijo_por_alumno' ? [] : undefined,
       };
       onUpdateExtraIncomes([newIncome, ...extraIncomes]);
+
+      addMovementLog({
+        modulo: 'ingresos_extra',
+        tipoAccion: 'ingreso_extra_creado',
+        titulo: `Actividad Extra Creada: ${newIncome.concepto}`,
+        descripcion: `Se creó "${newIncome.concepto}" (${newIncome.descripcion || 'Sin descripción'}). Tipo: ${newIncome.tipoCobro === 'fijo_por_alumno' ? `Fijo por alumno ($${newIncome.montoPorAlumno?.toLocaleString('es-CL')})` : `General ($${newIncome.monto.toLocaleString('es-CL')})`}.`,
+        usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+        rol: userRole,
+        montoAfectado: newIncome.monto,
+        referenciaId: newIncome.id,
+        referenciaNombre: newIncome.concepto,
+      });
     } else if (modalMode === 'edit' && editingIncome) {
       const updated = extraIncomes.map((item) =>
         item.id === editingIncome.id
@@ -153,10 +167,23 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
               tipoCobro: formTipoCobro,
               montoPorAlumno: formTipoCobro === 'fijo_por_alumno' ? Number(formMontoPorAlumno) : undefined,
               alumnosPagados: formTipoCobro === 'fijo_por_alumno' ? formAlumnosPagados : undefined,
+              alumnosExentos: formTipoCobro === 'fijo_por_alumno' ? (item.alumnosExentos || []) : undefined,
             }
           : item
       );
       onUpdateExtraIncomes(updated);
+
+      addMovementLog({
+        modulo: 'ingresos_extra',
+        tipoAccion: 'ingreso_extra_editado',
+        titulo: `Actividad Extra Editada: ${formConcepto.trim()}`,
+        descripcion: `Se actualizaron los datos de la actividad extraordinaria "${formConcepto.trim()}".`,
+        usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+        rol: userRole,
+        montoAfectado: finalMonto,
+        referenciaId: editingIncome.id,
+        referenciaNombre: formConcepto.trim(),
+      });
     }
 
     setModalMode(null);
@@ -165,7 +192,23 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
 
   const handleDeleteIncome = (id: string) => {
     if (isAuditor) return;
+    const target = extraIncomes.find((i) => i.id === id);
     onUpdateExtraIncomes(extraIncomes.filter((i) => i.id !== id));
+
+    if (target) {
+      addMovementLog({
+        modulo: 'ingresos_extra',
+        tipoAccion: 'ingreso_extra_eliminado',
+        titulo: `Actividad Extra Eliminada: ${target.concepto}`,
+        descripcion: `Se eliminó el registro de "${target.concepto}" ($${target.monto.toLocaleString('es-CL')} CLP).`,
+        usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+        rol: userRole,
+        montoAfectado: target.monto,
+        referenciaId: target.id,
+        referenciaNombre: target.concepto,
+      });
+    }
+
     setDeletingIncome(null);
   };
 
@@ -183,11 +226,68 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
       ? currentPaid.filter((id) => id !== studentId)
       : [...currentPaid, studentId];
 
+    // If marked as paid, make sure it's not in exempt
+    const currentExempt = targetIncome.alumnosExentos || [];
+    const updatedExempt = currentExempt.filter((id) => id !== studentId);
+
     const fixedAmount = targetIncome.montoPorAlumno || 0;
     const newTotal = updatedPaid.length * fixedAmount;
 
     const updatedIncome = {
       ...targetIncome,
+      alumnosPagados: updatedPaid,
+      alumnosExentos: updatedExempt,
+      monto: newTotal,
+    };
+
+    const updatedList = extraIncomes.map((item) =>
+      item.id === incomeId ? updatedIncome : item
+    );
+
+    onUpdateExtraIncomes(updatedList);
+    setTrackingIncome(updatedIncome);
+
+    const student = students.find((s) => s.id === studentId);
+    const studentName = student ? `${student.nombres} ${student.apellidos}` : 'Alumno';
+    addMovementLog({
+      modulo: 'ingresos_extra',
+      tipoAccion: 'ingreso_extra_pago_alumno',
+      titulo: `${isCurrentlyPaid ? 'Pago Anulado' : 'Pago Registrado'}: ${targetIncome.concepto}`,
+      descripcion: `Se marcó como ${isCurrentlyPaid ? 'PENDIENTE' : 'PAGADO'} el concepto "${targetIncome.concepto}" ($${fixedAmount.toLocaleString('es-CL')}) para el alumno ${studentName}.`,
+      usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+      rol: userRole,
+      montoAfectado: fixedAmount,
+      referenciaId: studentId,
+      referenciaNombre: studentName,
+    });
+  };
+
+  // Toggle student exempt status via switch
+  const handleToggleStudentExempt = (incomeId: string, studentId: string) => {
+    if (isAuditor) return;
+
+    const targetIncome = extraIncomes.find((i) => i.id === incomeId);
+    if (!targetIncome) return;
+
+    const currentExempt = targetIncome.alumnosExentos || [];
+    const isCurrentlyExempt = currentExempt.includes(studentId);
+
+    const updatedExempt = isCurrentlyExempt
+      ? currentExempt.filter((id) => id !== studentId)
+      : [...currentExempt, studentId];
+
+    // If marked as exempt, remove from paid
+    let updatedPaid = targetIncome.alumnosPagados || [];
+    if (!isCurrentlyExempt && updatedPaid.includes(studentId)) {
+      updatedPaid = updatedPaid.filter((id) => id !== studentId);
+    }
+
+    const fixedAmount = targetIncome.montoPorAlumno || 0;
+    const newTotal = updatedPaid.length * fixedAmount;
+
+    const updatedIncome: ExtraIncome = {
+      ...targetIncome,
+      alumnosExentos: updatedExempt,
       alumnosPagados: updatedPaid,
       monto: newTotal,
     };
@@ -198,6 +298,21 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
 
     onUpdateExtraIncomes(updatedList);
     setTrackingIncome(updatedIncome);
+
+    const student = students.find((s) => s.id === studentId);
+    const studentName = student ? `${student.nombres} ${student.apellidos}` : 'Alumno';
+    addMovementLog({
+      modulo: 'ingresos_extra',
+      tipoAccion: 'ingreso_extra_exencion_alumno',
+      titulo: `${isCurrentlyExempt ? 'Exención Removida' : 'Alumno Eximido'}: ${targetIncome.concepto}`,
+      descripcion: `El alumno ${studentName} fue marcado como ${isCurrentlyExempt ? 'OBLIGADO A PAGO' : 'EXENTO DE PAGO (Switch activado)'} para el cobro de "${targetIncome.concepto}".`,
+      usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
+      rol: userRole,
+      montoAfectado: fixedAmount,
+      referenciaId: studentId,
+      referenciaNombre: studentName,
+      detallesAdicionales: { concepto: targetIncome.concepto, exento: !isCurrentlyExempt },
+    });
   };
 
   const handleMarkAllStudents = (incomeId: string, markPaid: boolean) => {
@@ -455,74 +570,104 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
             </div>
 
             {/* Quick Summary Bar */}
-            <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
-              <div className="flex items-center gap-4">
-                <div>
-                  <span className="text-slate-500 block">Pagados:</span>
-                  <span className="font-bold text-emerald-700 text-sm font-mono">
-                    {trackingIncome.alumnosPagados?.length || 0} / {students.length} ({formatCurrency(trackingIncome.monto)})
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block">Pendientes:</span>
-                  <span className="font-bold text-red-600 text-sm font-mono">
-                    {students.length - (trackingIncome.alumnosPagados?.length || 0)} alumnos ({formatCurrency((students.length - (trackingIncome.alumnosPagados?.length || 0)) * (trackingIncome.montoPorAlumno || 0))})
-                  </span>
-                </div>
-              </div>
+            {(() => {
+              const exemptCount = trackingIncome.alumnosExentos?.length || 0;
+              const paidCount = trackingIncome.alumnosPagados?.length || 0;
+              const obligadosCount = Math.max(0, students.length - exemptCount);
+              const pendingCount = Math.max(0, obligadosCount - paidCount);
+              const fixedAmount = trackingIncome.montoPorAlumno || 0;
+              const totalRecaudado = paidCount * fixedAmount;
+              const totalPendiente = pendingCount * fixedAmount;
 
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-200">
-                  <button
-                    onClick={() => setTrackingFilter('all')}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded ${
-                      trackingFilter === 'all'
-                        ? 'bg-slate-900 text-white'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Todos
-                  </button>
-                  <button
-                    onClick={() => setTrackingFilter('paid')}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded ${
-                      trackingFilter === 'paid'
-                        ? 'bg-emerald-600 text-white'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Pagados
-                  </button>
-                  <button
-                    onClick={() => setTrackingFilter('pending')}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded ${
-                      trackingFilter === 'pending'
-                        ? 'bg-red-600 text-white'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Pendientes
-                  </button>
-                </div>
-
-                {!isAuditor && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleMarkAllStudents(trackingIncome.id, true)}
-                      className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100"
-                    >
-                      Marcar Todos
-                    </button>
-                    <button
-                      onClick={() => handleMarkAllStudents(trackingIncome.id, false)}
-                      className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100"
-                    >
-                      Desmarcar Todos
-                    </button>
+              return (
+                <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
+                  <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+                    <div>
+                      <span className="text-slate-500 block text-[11px]">Pagados:</span>
+                      <span className="font-bold text-emerald-700 text-sm font-mono">
+                        {paidCount} / {obligadosCount} ({formatCurrency(totalRecaudado)})
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[11px]">Pendientes:</span>
+                      <span className="font-bold text-red-600 text-sm font-mono">
+                        {pendingCount} alumnos ({formatCurrency(totalPendiente)})
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[11px]">Exentos de Cobro:</span>
+                      <span className="font-bold text-purple-700 text-sm font-mono bg-purple-100/70 border border-purple-200 px-2 py-0.5 rounded-md inline-block">
+                        {exemptCount} alumnos
+                      </span>
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-200">
+                      <button
+                        onClick={() => setTrackingFilter('all')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded cursor-pointer ${
+                          trackingFilter === 'all'
+                            ? 'bg-slate-900 text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Todos ({students.length})
+                      </button>
+                      <button
+                        onClick={() => setTrackingFilter('paid')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded cursor-pointer ${
+                          trackingFilter === 'paid'
+                            ? 'bg-emerald-600 text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Pagados ({paidCount})
+                      </button>
+                      <button
+                        onClick={() => setTrackingFilter('pending')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded cursor-pointer ${
+                          trackingFilter === 'pending'
+                            ? 'bg-red-600 text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Pendientes ({pendingCount})
+                      </button>
+                      <button
+                        onClick={() => setTrackingFilter('exempt')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded cursor-pointer ${
+                          trackingFilter === 'exempt'
+                            ? 'bg-purple-600 text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Exentos ({exemptCount})
+                      </button>
+                    </div>
+
+                    {!isAuditor && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleMarkAllStudents(trackingIncome.id, true)}
+                          title="Marcar todos los alumnos obligados como pagados"
+                          className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100 cursor-pointer"
+                        >
+                          Marcar Todos
+                        </button>
+                        <button
+                          onClick={() => handleMarkAllStudents(trackingIncome.id, false)}
+                          title="Desmarcar todos"
+                          className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100 cursor-pointer"
+                        >
+                          Desmarcar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Checklist Students Table */}
             <div className="overflow-y-auto flex-1 p-4">
@@ -532,23 +677,32 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
                     <th className="py-2.5 px-3">Alumno</th>
                     <th className="py-2.5 px-3">RUT</th>
                     <th className="py-2.5 px-3">Apoderado / Contacto</th>
-                    <th className="py-2.5 px-3 text-center">Estado de Pago</th>
+                    <th className="py-2.5 px-3 text-center">Exento de Pago (Switch)</th>
+                    <th className="py-2.5 px-3 text-center">Estado del Cobro</th>
                     <th className="py-2.5 px-3 text-center">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {students
                     .filter((s) => {
+                      const isExempt = trackingIncome.alumnosExentos?.includes(s.id);
                       const isPaid = trackingIncome.alumnosPagados?.includes(s.id);
-                      if (trackingFilter === 'paid') return isPaid;
-                      if (trackingFilter === 'pending') return !isPaid;
+                      if (trackingFilter === 'paid') return isPaid && !isExempt;
+                      if (trackingFilter === 'pending') return !isPaid && !isExempt;
+                      if (trackingFilter === 'exempt') return isExempt;
                       return true;
                     })
                     .map((student) => {
+                      const isExempt = trackingIncome.alumnosExentos?.includes(student.id);
                       const isPaid = trackingIncome.alumnosPagados?.includes(student.id);
 
                       return (
-                        <tr key={student.id} className="hover:bg-slate-50 transition-colors">
+                        <tr
+                          key={student.id}
+                          className={`transition-colors ${
+                            isExempt ? 'bg-purple-50/40 hover:bg-purple-50/70' : 'hover:bg-slate-50'
+                          }`}
+                        >
                           <td className="py-2.5 px-3">
                             <span className="font-bold text-slate-900 block">
                               {student.nombres} {student.apellidos}
@@ -561,8 +715,47 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
                             <div>{student.nombreApoderado}</div>
                             <div className="text-[11px] text-slate-500">{student.telefonoApoderado}</div>
                           </td>
+
+                          {/* Switch para dejar Exento de Pago */}
                           <td className="py-2.5 px-3 text-center">
-                            {isPaid ? (
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                type="button"
+                                disabled={isAuditor}
+                                onClick={() => handleToggleStudentExempt(trackingIncome.id, student.id)}
+                                title={
+                                  isExempt
+                                    ? 'Quitar exención: el alumno volverá a tener obligación de pago'
+                                    : 'Dejar exento: el alumno no deberá pagar este concepto ni acumulará deuda'
+                                }
+                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                                  isExempt ? 'bg-purple-600' : 'bg-slate-300 hover:bg-slate-400'
+                                } ${isAuditor ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                <span
+                                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                                    isExempt ? 'translate-x-4' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
+                              <span
+                                className={`text-[11px] font-bold ${
+                                  isExempt ? 'text-purple-700' : 'text-slate-500'
+                                }`}
+                              >
+                                {isExempt ? 'Exento' : 'No'}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Estado del Cobro */}
+                          <td className="py-2.5 px-3 text-center">
+                            {isExempt ? (
+                              <span className="inline-flex items-center gap-1 text-purple-700 font-bold bg-purple-100/80 border border-purple-300 px-2 py-0.5 rounded text-[11px]">
+                                <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+                                Exento ($0)
+                              </span>
+                            ) : isPaid ? (
                               <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded text-[11px]">
                                 <Check className="w-3.5 h-3.5" />
                                 Pagado ({formatCurrency(trackingIncome.montoPorAlumno || 0)})
@@ -573,30 +766,40 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
                               </span>
                             )}
                           </td>
+
+                          {/* Acciones */}
                           <td className="py-2.5 px-3 text-center">
                             <div className="flex items-center justify-center gap-2">
-                              {/* Toggle Paid Button */}
-                              <button
-                                disabled={isAuditor}
-                                onClick={() => handleToggleStudentPaid(trackingIncome.id, student.id)}
-                                className={`px-2.5 py-1 text-xs font-bold rounded shadow-xs transition-colors cursor-pointer ${
-                                  isPaid
-                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                                } ${isAuditor ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              >
-                                {isPaid ? 'Marcar Pendiente' : 'Marcar Pagado'}
-                              </button>
+                              {isExempt ? (
+                                <span className="text-[11px] font-semibold text-purple-600 italic">
+                                  Sin cobro requerido
+                                </span>
+                              ) : (
+                                <>
+                                  {/* Toggle Paid Button */}
+                                  <button
+                                    disabled={isAuditor}
+                                    onClick={() => handleToggleStudentPaid(trackingIncome.id, student.id)}
+                                    className={`px-2.5 py-1 text-xs font-bold rounded shadow-xs transition-colors cursor-pointer ${
+                                      isPaid
+                                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                        : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                    } ${isAuditor ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                  >
+                                    {isPaid ? 'Marcar Pendiente' : 'Marcar Pagado'}
+                                  </button>
 
-                              {/* WhatsApp Reminder Button */}
-                              {!isPaid && (
-                                <button
-                                  onClick={() => sendWhatsAppReminder(student, trackingIncome)}
-                                  title="Enviar recordatorio de cobro por WhatsApp"
-                                  className="w-7 h-7 rounded bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center shadow-xs cursor-pointer"
-                                >
-                                  <MessageCircle className="w-4 h-4 fill-white" />
-                                </button>
+                                  {/* WhatsApp Reminder Button */}
+                                  {!isPaid && (
+                                    <button
+                                      onClick={() => sendWhatsAppReminder(student, trackingIncome)}
+                                      title="Enviar recordatorio de cobro por WhatsApp"
+                                      className="w-7 h-7 rounded bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center shadow-xs cursor-pointer"
+                                    >
+                                      <MessageCircle className="w-4 h-4 fill-white" />
+                                    </button>
+                                  )}
+                                </>
                               )}
                             </div>
                           </td>

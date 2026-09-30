@@ -41,9 +41,10 @@ export function exportCourseFinancialReportToExcel(
     [],
     ['ESTADÍSTICAS DE ALUMNOS', 'CANTIDAD'],
     ['Total de Alumnos Registrados', students.length],
-    ['Alumnos al Día con Cuotas', students.filter((s) => getStudentAnnualSummary(s, year, payments, config.cuotaMensualPorDefecto).isUpToDate).length],
-    ['Alumnos con Cuotas Pendientes', students.filter((s) => !getStudentAnnualSummary(s, year, payments, config.cuotaMensualPorDefecto).isUpToDate).length],
-    ['Alumnos Exentos de Cuota', students.filter((s) => s.noPagaCuota).length],
+    ['Alumnos Activos al Día con Cuotas', students.filter((s) => s.activo !== false && !s.noPagaCuota && getStudentAnnualSummary(s, year, payments, config.cuotaMensualPorDefecto).isUpToDate).length],
+    ['Alumnos Activos con Cuotas Pendientes', students.filter((s) => s.activo !== false && !s.noPagaCuota && !getStudentAnnualSummary(s, year, payments, config.cuotaMensualPorDefecto).isUpToDate).length],
+    ['Alumnos Exentos de Cuota (Becas)', students.filter((s) => s.noPagaCuota).length],
+    ['Alumnos Inactivos / Retirados', students.filter((s) => s.activo === false).length],
   ];
 
   const wsBalance = XLSX.utils.aoa_to_sheet(balanceData);
@@ -103,6 +104,7 @@ export function exportCourseFinancialReportToExcel(
   const cuotasHeaders = [
     'RUT',
     'Alumno',
+    'Estado Matrícula',
     'Apoderado',
     'Teléfono',
     'Tipo Ingreso',
@@ -110,7 +112,7 @@ export function exportCourseFinancialReportToExcel(
     ...MONTH_NAMES.map((m) => `Cuota ${m}`),
     'Total Pagado ($)',
     'Total Deuda ($)',
-    'Estado',
+    'Estado Cobranza',
   ];
 
   const cuotasRows = students.map((s) => {
@@ -134,6 +136,7 @@ export function exportCourseFinancialReportToExcel(
     return [
       s.rut,
       `${s.nombres} ${s.apellidos}`,
+      s.activo !== false ? 'Activo' : 'Inactivo (Retirado)',
       s.nombreApoderado,
       s.telefonoApoderado,
       s.tipoIngreso === 'full_year' ? 'Año Completo' : `Mediado Año (${MONTH_NAMES[s.mesIngreso]})`,
@@ -141,7 +144,11 @@ export function exportCourseFinancialReportToExcel(
       ...monthsStatus,
       summary.totalPaid,
       summary.totalDebt,
-      summary.isUpToDate ? 'Al Día' : 'Con Deuda',
+      s.activo === false
+        ? 'Inactivo (Sin deuda)'
+        : summary.isUpToDate
+        ? 'Al Día'
+        : 'Con Deuda',
     ];
   });
 
@@ -160,6 +167,7 @@ export function exportCourseFinancialReportToExcel(
     const rifasHeaders = [
       'RUT',
       'Alumno',
+      'Estado Matrícula',
       'Apoderado',
       'Teléfono',
       ...fixedActivities.map(
@@ -179,6 +187,8 @@ export function exportCourseFinancialReportToExcel(
         if (isPaid) {
           totalPagadoStudent += monto;
           return 'PAGADO';
+        } else if (s.activo === false) {
+          return 'Inactivo (No aplica)';
         } else {
           totalPendienteStudent += monto;
           return `DEBE ($${monto.toLocaleString('es-CL')})`;
@@ -188,6 +198,7 @@ export function exportCourseFinancialReportToExcel(
       return [
         s.rut,
         `${s.nombres} ${s.apellidos}`,
+        s.activo !== false ? 'Activo' : 'Inactivo (Retirado)',
         s.nombreApoderado,
         s.telefonoApoderado,
         ...actStatuses,
