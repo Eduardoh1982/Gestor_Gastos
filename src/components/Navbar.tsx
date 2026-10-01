@@ -191,15 +191,25 @@ export const Navbar: React.FC<NavbarProps> = ({
                   ))}
                 </select>
                 <button
+                  type="button"
                   onClick={onAddNewYear}
-                  title="Habilitar nuevo año contable"
-                  className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-700 transition-colors"
+                  disabled={currentRole === 'auditor'}
+                  title={
+                    currentRole === 'auditor'
+                      ? 'Los auditores no pueden generar nuevos períodos contables (función deshabilitada)'
+                      : 'Habilitar nuevo año contable'
+                  }
+                  className={`p-1 rounded transition-colors ${
+                    currentRole === 'auditor'
+                      ? 'text-slate-600 cursor-not-allowed opacity-40'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-700 cursor-pointer'
+                  }`}
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              {/* Logged User Capsule & Role Switcher */}
+              {/* Logged User Capsule & Role Badge (Solo Informativo) */}
               <div className="flex items-center bg-slate-800/80 px-2 py-1 rounded-lg border border-slate-700 gap-1.5">
                 {currentRole === 'admin' ? (
                   <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -219,27 +229,29 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </span>
                 </div>
 
-                {/* Quick toggle if Gestor */}
+                {/* Role badges (Informativos: deshabilitados para evitar que el usuario o auditor altere permisos) */}
                 {authSession?.type === 'gestor' && (
                   <div className="flex items-center gap-1 border-l border-slate-700 pl-1.5 ml-1">
                     <button
-                      onClick={() => onRoleChange('admin')}
-                      title="Alternar a Administrador"
-                      className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
+                      type="button"
+                      disabled={true}
+                      title="Rol asignado por inicio de sesión (no modificable)"
+                      className={`px-1.5 py-0.5 text-[10px] font-bold rounded cursor-default select-none transition-none ${
                         currentRole === 'admin'
                           ? 'bg-emerald-500 text-slate-950 font-black'
-                          : 'text-slate-400 hover:text-white'
+                          : 'text-slate-500 opacity-30 cursor-not-allowed'
                       }`}
                     >
                       Admin
                     </button>
                     <button
-                      onClick={() => onRoleChange('auditor')}
-                      title="Alternar a Auditor (Solo lectura)"
-                      className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
+                      type="button"
+                      disabled={true}
+                      title="Rol asignado por inicio de sesión (no modificable)"
+                      className={`px-1.5 py-0.5 text-[10px] font-bold rounded cursor-default select-none transition-none ${
                         currentRole === 'auditor'
                           ? 'bg-amber-400 text-slate-950 font-black'
-                          : 'text-slate-400 hover:text-white'
+                          : 'text-slate-500 opacity-30 cursor-not-allowed'
                       }`}
                     >
                       Auditor
@@ -248,11 +260,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
               </div>
 
-              {/* Session Permanence Auto-Logout Timer (Max 3 mins) */}
+              {/* Session Inactivity Auto-Logout Timer (Max 3 mins without cursor movement) */}
               {secondsRemaining !== undefined && (
                 <div
                   onClick={onResetTimer}
-                  title="Tiempo de permanencia de sesión (máximo 3 minutos de inactividad). Haz clic o interactúa para reiniciar el contador."
+                  title="Control de inactividad (3 minutos): Mover el cursor o interactuar en la app reinicia el tiempo. Si no hay movimiento de cursor durante 3 minutos, se cerrará la sesión automáticamente por seguridad."
                   className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold transition-all cursor-pointer ${
                     secondsRemaining <= 45
                       ? 'bg-amber-500/20 text-amber-300 border-amber-400 shadow-sm shadow-amber-500/30 animate-pulse'
@@ -261,7 +273,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <Clock className={`w-3.5 h-3.5 ${secondsRemaining <= 45 ? 'text-amber-400 animate-spin' : 'text-slate-400'}`} />
                   <span className="hidden sm:inline text-[11px] font-sans font-medium text-slate-400">
-                    Sesión:
+                    Inactividad:
                   </span>
                   <span>
                     {Math.floor(secondsRemaining / 60)}:{(secondsRemaining % 60).toString().padStart(2, '0')}

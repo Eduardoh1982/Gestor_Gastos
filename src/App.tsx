@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   CourseConfig,
   Student,
@@ -64,6 +64,72 @@ export default function App() {
   const [showNewYearModal, setShowNewYearModal] = useState<boolean>(false);
   const [newYearInput, setNewYearInput] = useState<number>(2027);
 
+  // Inactivity auto-logout timer: 3 minutes (180 seconds) without cursor movement or interaction
+  const INACTIVITY_TIMEOUT_SECONDS = 180;
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(INACTIVITY_TIMEOUT_SECONDS);
+  const [timeoutNotice, setTimeoutNotice] = useState<string | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
+
+  const handleResetTimer = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    setSecondsRemaining(INACTIVITY_TIMEOUT_SECONDS);
+  }, []);
+
+  useEffect(() => {
+    if (!authSession) {
+      setSecondsRemaining(INACTIVITY_TIMEOUT_SECONDS);
+      return;
+    }
+
+    lastActivityRef.current = Date.now();
+    setSecondsRemaining(INACTIVITY_TIMEOUT_SECONDS);
+
+    // Event listener to reset timer on cursor movement or interaction
+    const handleUserActivity = () => {
+      lastActivityRef.current = Date.now();
+      setSecondsRemaining((prev) => (prev < INACTIVITY_TIMEOUT_SECONDS ? INACTIVITY_TIMEOUT_SECONDS : prev));
+    };
+
+    const activityEvents = [
+      'mousemove',
+      'pointermove',
+      'mousedown',
+      'mouseup',
+      'keydown',
+      'touchstart',
+      'wheel',
+      'scroll',
+    ];
+
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, handleUserActivity, { passive: true });
+    });
+
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const elapsedSeconds = Math.floor((now - lastActivityRef.current) / 1000);
+      const remaining = Math.max(0, INACTIVITY_TIMEOUT_SECONDS - elapsedSeconds);
+
+      setSecondsRemaining(remaining);
+
+      if (remaining <= 0) {
+        clearInterval(timer);
+        clearStoredAuthSession();
+        setAuthSession(null);
+        setTimeoutNotice(
+          'Se ha cerrado la sesión automáticamente por inactividad (3 minutos sin movimiento de cursor o interacción en la app).'
+        );
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+      activityEvents.forEach((event) => {
+        window.removeEventListener(event, handleUserActivity);
+      });
+    };
+  }, [authSession]);
+
   // Sync state helpers
   const handleUpdateConfig = (newConfig: CourseConfig) => {
     setConfig(newConfig);
@@ -102,6 +168,9 @@ export default function App() {
 
   // Auth Handlers
   const handleLoginSuccess = (session: AuthSession) => {
+    setTimeoutNotice(null);
+    lastActivityRef.current = Date.now();
+    setSecondsRemaining(INACTIVITY_TIMEOUT_SECONDS);
     setAuthSession(session);
     saveStoredAuthSession(session);
     if (session.type === 'gestor' && session.role) {
@@ -112,6 +181,7 @@ export default function App() {
   const handleLogout = () => {
     clearStoredAuthSession();
     setAuthSession(null);
+    setTimeoutNotice(null);
   };
 
   // Role change for testing inside Gestor mode
@@ -141,6 +211,10 @@ export default function App() {
   };
 
   const handleAddNewYear = () => {
+    if (currentRole === 'auditor') {
+      alert('Los usuarios con rol Auditor no tienen permisos para habilitar nuevos períodos contables.');
+      return;
+    }
     if (config.availableYears.includes(newYearInput)) {
       alert(`El año ${newYearInput} ya se encuentra en la lista de períodos contables.`);
       return;
@@ -175,6 +249,8 @@ export default function App() {
         students={students}
         config={config}
         onLoginSuccess={handleLoginSuccess}
+        timeoutNotice={timeoutNotice}
+        onClearTimeoutNotice={() => setTimeoutNotice(null)}
       />
     );
   }
@@ -210,6 +286,7 @@ export default function App() {
         selectedYear={selectedYear}
         onYearChange={setSelectedYear}
         onAddNewYear={() => {
+          if (currentRole === 'auditor') return;
           setNewYearInput(selectedYear + 1);
           setShowNewYearModal(true);
         }}
@@ -218,6 +295,8 @@ export default function App() {
         studentsCount={students.length}
         expensesCount={expenses.filter((e) => e.year === selectedYear).length}
         extraIncomesCount={extraIncomes.filter((i) => i.year === selectedYear).length}
+        secondsRemaining={secondsRemaining}
+        onResetTimer={handleResetTimer}
       />
 
       {/* Auditor Notice Banner */}
@@ -302,6 +381,10 @@ export default function App() {
             onRoleChange={handleRoleChange}
             onDataReset={reloadAllData}
             onLogout={handleLogout}
+            students={students}
+            payments={payments}
+            extraIncomes={extraIncomes}
+            year={selectedYear}
           />
         )}
       </main>
@@ -348,7 +431,9 @@ export default function App() {
               <button
                 type="button"
                 onClick={handleAddNewYear}
-                className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs"
+                disabled={currentRole === 'auditor'}
+                title={currentRole === 'auditor' ? 'Función deshabilitada para usuarios con rol Auditor' : 'Habilitar Período'}
+                className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 Habilitar Período
               </button>

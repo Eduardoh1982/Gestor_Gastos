@@ -13,6 +13,7 @@ import {
   Users,
   Sparkles,
   ChevronRight,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   Student,

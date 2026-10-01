@@ -10,6 +10,7 @@ import {
   AlertCircle,
   KeyRound,
   Users,
+  X,
 } from 'lucide-react';
 import { GestorUser, Student, CourseConfig, AuthSession } from '../types';
 import { getEffectiveLogo } from '../assets/logo';

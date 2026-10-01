@@ -68,6 +68,16 @@ export const DEFAULT_CONFIG: CourseConfig = {
     titularRut: '12.345.678-9',
     emailConfirmacion: 'tesoreria.curso@gmail.com',
   },
+  smtpConfig: {
+    activo: false,
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
+    user: '',
+    pass: '',
+    fromEmail: 'tesoreria.curso@gmail.com',
+    fromName: 'Tesorería Shito ryu',
+  },
 };
 
 export const DEFAULT_STUDENTS: Student[] = [
@@ -638,16 +648,16 @@ export const DEFAULT_MOVEMENT_LOGS: MovementLog[] = [
 export function getStoredMovementLogs(): MovementLog[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.MOVEMENT_LOGS);
-    if (!raw) {
+    if (raw === null) {
       saveStoredMovementLogs(DEFAULT_MOVEMENT_LOGS);
       return DEFAULT_MOVEMENT_LOGS;
     }
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      saveStoredMovementLogs(DEFAULT_MOVEMENT_LOGS);
-      return DEFAULT_MOVEMENT_LOGS;
+    if (Array.isArray(parsed)) {
+      return parsed;
     }
-    return parsed;
+    saveStoredMovementLogs(DEFAULT_MOVEMENT_LOGS);
+    return DEFAULT_MOVEMENT_LOGS;
   } catch {
     return DEFAULT_MOVEMENT_LOGS;
   }

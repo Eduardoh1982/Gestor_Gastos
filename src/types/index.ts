@@ -107,6 +107,7 @@ export type LogActionType =
   | 'ingreso_extra_eliminado'
   | 'ingreso_extra_pago_alumno'
   | 'ingreso_extra_exencion_alumno'
+  | 'notificacion_enviada'
   | 'sistema_reset'
   | 'sistema_config';
 
@@ -143,6 +144,17 @@ export interface BankAccountDetails {
   emailConfirmacion: string;
 }
 
+export interface SmtpConfig {
+  activo: boolean; // Si el envío por servidor SMTP está habilitado
+  host: string; // ej: smtp.gmail.com, smtp.office365.com
+  port: number; // ej: 587 o 465
+  secure: boolean; // true para 465, false para 587
+  user: string; // correo o usuario SMTP
+  pass: string; // contraseña o clave de aplicación de Gmail/Outlook
+  fromEmail: string; // correo remitente
+  fromName: string; // nombre del remitente (ej: Tesorería Curso)
+}
+
 export interface CourseConfig {
   nombreCurso: string;
   institucion: string;
@@ -150,6 +162,7 @@ export interface CourseConfig {
   availableYears: number[];
   cuotaMensualPorDefecto: number;
   datosBancarios: BankAccountDetails;
+  smtpConfig?: SmtpConfig;
   logoUrl?: string; // Custom uploaded logo in base64 or URL
 }
 
