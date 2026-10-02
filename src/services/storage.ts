@@ -29,14 +29,14 @@ export const DEFAULT_GESTOR_USERS: GestorUser[] = [
   {
     id: 'user-admin',
     username: 'admin',
-    password: 'admin123',
+    password: 'AdmR42#',
     role: 'admin',
     nombre: 'Administrador General',
   },
   {
     id: 'user-auditor',
     username: 'auditor',
-    password: 'auditor123',
+    password: 'AuditX52$',
     role: 'auditor',
     nombre: 'Auditor de Cuentas',
   },
@@ -87,12 +87,13 @@ export const DEFAULT_STUDENTS: Student[] = [
     apellidos: 'Apellido 2',
     rut: '24.123.456-7',
     nombreApoderado: 'María Pérez',
-    telefonoApoderado: '+56987654321',
+    telefonoApoderado: '+56 9 8765 4321',
     emailApoderado: 'maria.perez@example.cl',
     tipoIngreso: 'mid_year',
     mesIngreso: 3, // Abril
     noPagaCuota: false,
     activo: true,
+    tipoMiembro: 'alumno',
     fechaNacimiento: '2012-05-14',
     fechaIngreso: '2026-04-01',
     observaciones: 'Ingresó en abril trasladado desde otra región',
@@ -104,12 +105,13 @@ export const DEFAULT_STUDENTS: Student[] = [
     apellidos: 'Herrera',
     rut: '22.987.654-3',
     nombreApoderado: 'Eduardo Herrera',
-    telefonoApoderado: '+56912345678',
+    telefonoApoderado: '+56 9 1234 5678',
     emailApoderado: 'eduardo.herrera22@gmail.com',
     tipoIngreso: 'full_year',
     mesIngreso: 0,
     noPagaCuota: false,
     activo: true,
+    tipoMiembro: 'socio_alumno',
     fechaNacimiento: '2010-08-20',
     fechaIngreso: '2026-01-05',
     observaciones: 'Hermano mayor de Martín Herrera',
@@ -121,12 +123,13 @@ export const DEFAULT_STUDENTS: Student[] = [
     apellidos: 'Herrera',
     rut: '25.432.109-8',
     nombreApoderado: 'Eduardo Herrera',
-    telefonoApoderado: '+56912345678',
+    telefonoApoderado: '+56 9 1234 5678',
     emailApoderado: 'eduardo.herrera22@gmail.com',
     tipoIngreso: 'full_year',
     mesIngreso: 0,
     noPagaCuota: false,
     activo: true,
+    tipoMiembro: 'alumno',
     fechaNacimiento: '2014-11-12',
     fechaIngreso: '2026-01-05',
     observaciones: 'Hermano menor de Alexis Herrera (Mismo apoderado)',
@@ -138,12 +141,13 @@ export const DEFAULT_STUDENTS: Student[] = [
     apellidos: 'Valenzuela Morales',
     rut: '23.555.123-4',
     nombreApoderado: 'Carla Morales',
-    telefonoApoderado: '+56994433221',
+    telefonoApoderado: '+56 9 9443 3221',
     emailApoderado: 'carla.morales@example.cl',
     tipoIngreso: 'full_year',
     mesIngreso: 0,
     noPagaCuota: false,
     activo: true,
+    tipoMiembro: 'socio',
     fechaNacimiento: '2011-03-28',
     fechaIngreso: '2026-01-08',
     observaciones: '',
@@ -155,12 +159,13 @@ export const DEFAULT_STUDENTS: Student[] = [
     apellidos: 'González Pinto',
     rut: '24.888.999-1',
     nombreApoderado: 'Roberto González',
-    telefonoApoderado: '+56977665544',
+    telefonoApoderado: '+56 9 7766 5544',
     emailApoderado: 'roberto.g@example.cl',
     tipoIngreso: 'full_year',
     mesIngreso: 0,
     noPagaCuota: true, // Exento
     activo: true,
+    tipoMiembro: 'alumno',
     fechaNacimiento: '2013-09-17',
     fechaIngreso: '2026-01-08',
     observaciones: 'Exento de cuota por acuerdo de directiva (beca de apoyo escolar)',
@@ -172,12 +177,13 @@ export const DEFAULT_STUDENTS: Student[] = [
     apellidos: 'Rojas Castro',
     rut: '23.111.222-8',
     nombreApoderado: 'Andrea Castro',
-    telefonoApoderado: '+56966554433',
+    telefonoApoderado: '+56 9 6655 4433',
     emailApoderado: 'andrea.castro@example.cl',
     tipoIngreso: 'full_year',
     mesIngreso: 0,
     noPagaCuota: false,
     activo: true,
+    tipoMiembro: 'alumno',
     fechaNacimiento: '2012-12-04',
     fechaIngreso: '2026-01-10',
     observaciones: '',
@@ -338,6 +344,7 @@ export function getStoredStudents(): Student[] {
     return list.map((s) => ({
       ...s,
       activo: s.activo !== undefined ? s.activo : true,
+      tipoMiembro: s.tipoMiembro || 'alumno',
       fechaNacimiento: s.fechaNacimiento || '',
       fechaIngreso: s.fechaIngreso || '',
     }));
@@ -654,7 +661,20 @@ export function getStoredMovementLogs(): MovementLog[] {
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed;
+      // Normalizar logs para asegurar que el campo usuario guarde el nombre del gestor y no el rol
+      const users = getStoredGestorUsers();
+      const sanitized = parsed.map((log: MovementLog) => {
+        const uLower = (log.usuario || '').trim().toLowerCase();
+        if (['admin', 'auditor', 'administrador', 'gestor', 'directiva'].includes(uLower)) {
+          const matched = users.find((u) => u.role === log.rol);
+          return {
+            ...log,
+            usuario: matched?.nombre || (log.rol === 'admin' ? 'Administrador General' : 'Auditor de Cuentas'),
+          };
+        }
+        return log;
+      });
+      return sanitized;
     }
     saveStoredMovementLogs(DEFAULT_MOVEMENT_LOGS);
     return DEFAULT_MOVEMENT_LOGS;
@@ -677,11 +697,35 @@ export function addMovementLog(
   entry: Omit<MovementLog, 'id' | 'fechaHora' | 'timestamp'>
 ): MovementLog {
   const now = new Date();
+  const session = getStoredAuthSession();
+  const users = getStoredGestorUsers();
+
+  // En el log debe guardar siempre el nombre del gestor, nunca el rol genérico
+  let gestorNombre = '';
+  if (session?.gestorUser?.nombre) {
+    gestorNombre = session.gestorUser.nombre;
+  } else if (session?.gestorUser?.username) {
+    const matched = users.find((u) => u.username === session.gestorUser?.username);
+    gestorNombre = matched?.nombre || session.gestorUser.username;
+  } else if (
+    entry.usuario &&
+    !['admin', 'auditor', 'administrador', 'gestor', 'directiva'].includes(entry.usuario.trim().toLowerCase())
+  ) {
+    gestorNombre = entry.usuario.trim();
+  } else {
+    // Si no se proporcionó un nombre o vino un rol, buscar el nombre real en la lista de gestores
+    const matched = users.find(
+      (u) => u.role === entry.rol || u.username === session?.gestorUser?.username
+    );
+    gestorNombre = matched?.nombre || (entry.rol === 'admin' ? 'Administrador General' : 'Auditor de Cuentas');
+  }
+
   const newLog: MovementLog = {
     id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     fechaHora: now.toISOString(),
     timestamp: now.getTime(),
     ...entry,
+    usuario: gestorNombre, // Guarda siempre el nombre del gestor, no el rol
   };
   const existing = getStoredMovementLogs();
   const updated = [newLog, ...existing];

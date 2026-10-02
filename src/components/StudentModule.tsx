@@ -20,6 +20,11 @@ import {
   UserX,
   Power,
   CalendarDays,
+  Cake,
+  PartyPopper,
+  Gift,
+  Send,
+  Sparkles,
 } from 'lucide-react';
 import {
   Student,
@@ -28,18 +33,30 @@ import {
   MonthIndex,
   MONTH_NAMES,
   UserRole,
+  MemberType,
 } from '../types';
 import {
   getStudentAnnualSummary,
   getMonthlyStatus,
   formatCurrency,
+  addMovementLog,
+  getStoredAuthSession,
 } from '../services/storage';
-import { openWhatsAppChat } from '../services/whatsapp';
+import { openWhatsAppChat, openBirthdayWhatsAppChat } from '../services/whatsapp';
 import {
   exportStudentsListToExcel,
   calculateAge,
   formatDateCL,
 } from '../services/studentExcel';
+import { formatChileanMobile } from '../services/phoneUtils';
+import {
+  isTodayBirthday,
+  isThisMonthBirthday,
+  formatBirthdayDisplay,
+} from '../services/birthdayUtils';
+import {
+  sendBirthdayGreetingEmail,
+} from '../services/emailService';
 
 interface StudentModuleProps {
   students: Student[];
@@ -66,10 +83,22 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
   const [statusFilter, setStatusFilter] = useState<
     'all' | 'active' | 'inactive' | 'up_to_date' | 'debt' | 'exempt'
   >('all');
+  const [memberTypeFilter, setMemberTypeFilter] = useState<'all' | MemberType>('all');
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
   const [togglingStudent, setTogglingStudent] = useState<Student | null>(null);
+
+  // Birthday Greeting Modal state
+  const [birthdayModalStudent, setBirthdayModalStudent] = useState<Student | null>(null);
+  const [birthdaySubject, setBirthdaySubject] = useState('');
+  const [birthdayCustomMessage, setBirthdayCustomMessage] = useState('');
+  const [isSendingBirthdayEmail, setIsSendingBirthdayEmail] = useState(false);
+  const [birthdaySendResult, setBirthdaySendResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+  const [showBirthdaysBanner, setShowBirthdaysBanner] = useState(true);
 
   // Form states
   const [formNombres, setFormNombres] = useState('');
@@ -82,6 +111,7 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
   const [formMesIngreso, setFormMesIngreso] = useState<MonthIndex>(2); // Marzo default for mid-year
   const [formNoPagaCuota, setFormNoPagaCuota] = useState(false);
   const [formActivo, setFormActivo] = useState(true);
+  const [formTipoMiembro, setFormTipoMiembro] = useState<MemberType>('alumno');
   const [formFechaNacimiento, setFormFechaNacimiento] = useState('');
   const [formFechaIngreso, setFormFechaIngreso] = useState(
     new Date().toISOString().split('T')[0]
@@ -99,6 +129,7 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
     setFormMesIngreso(2);
     setFormNoPagaCuota(false);
     setFormActivo(true);
+    setFormTipoMiembro('alumno');
     setFormFechaNacimiento('');
     setFormFechaIngreso(new Date().toISOString().split('T')[0]);
     setFormObservaciones('');
@@ -111,12 +142,13 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
     setFormApellidos(student.apellidos);
     setFormRut(student.rut);
     setFormNombreApoderado(student.nombreApoderado);
-    setFormTelefonoApoderado(student.telefonoApoderado);
+    setFormTelefonoApoderado(formatChileanMobile(student.telefonoApoderado) || '+56 9 ');
     setFormEmailApoderado(student.emailApoderado);
     setFormTipoIngreso(student.tipoIngreso);
     setFormMesIngreso(student.mesIngreso);
     setFormNoPagaCuota(student.noPagaCuota);
     setFormActivo(student.activo !== false);
+    setFormTipoMiembro(student.tipoMiembro || 'alumno');
     setFormFechaNacimiento(student.fechaNacimiento || '');
     setFormFechaIngreso(
       student.fechaIngreso ||
@@ -131,6 +163,8 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
     e.preventDefault();
     if (isAuditor) return;
 
+    const formattedPhone = formatChileanMobile(formTelefonoApoderado).trim() || formTelefonoApoderado.trim();
+
     if (modalMode === 'create') {
       const newStudent: Student = {
         id: `stu-${Date.now()}`,
@@ -138,12 +172,13 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
         apellidos: formApellidos.trim(),
         rut: formRut.trim(),
         nombreApoderado: formNombreApoderado.trim(),
-        telefonoApoderado: formTelefonoApoderado.trim(),
+        telefonoApoderado: formattedPhone,
         emailApoderado: formEmailApoderado.trim(),
         tipoIngreso: formTipoIngreso,
         mesIngreso: formTipoIngreso === 'mid_year' ? formMesIngreso : 0,
         noPagaCuota: formNoPagaCuota,
         activo: formActivo,
+        tipoMiembro: formTipoMiembro,
         fechaNacimiento: formFechaNacimiento || undefined,
         fechaIngreso: formFechaIngreso || undefined,
         observaciones: formObservaciones.trim(),
@@ -159,12 +194,13 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
               apellidos: formApellidos.trim(),
               rut: formRut.trim(),
               nombreApoderado: formNombreApoderado.trim(),
-              telefonoApoderado: formTelefonoApoderado.trim(),
+              telefonoApoderado: formattedPhone,
               emailApoderado: formEmailApoderado.trim(),
               tipoIngreso: formTipoIngreso,
               mesIngreso: formTipoIngreso === 'mid_year' ? formMesIngreso : 0,
               noPagaCuota: formNoPagaCuota,
               activo: formActivo,
+              tipoMiembro: formTipoMiembro,
               fechaNacimiento: formFechaNacimiento || undefined,
               fechaIngreso: formFechaIngreso || undefined,
               observaciones: formObservaciones.trim(),
@@ -207,6 +243,12 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
 
       if (!matchesSearch) return false;
 
+      // Filter by Member Type (Alumno, Socio, Socio/Alumno)
+      if (memberTypeFilter !== 'all') {
+        const studentMemberType = s.tipoMiembro || 'alumno';
+        if (studentMemberType !== memberTypeFilter) return false;
+      }
+
       const isStudentActive = s.activo !== false;
 
       if (statusFilter === 'active') return isStudentActive;
@@ -225,7 +267,7 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
 
       return true;
     });
-  }, [students, searchTerm, statusFilter, year, payments, config.cuotaMensualPorDefecto]);
+  }, [students, searchTerm, statusFilter, memberTypeFilter, year, payments, config.cuotaMensualPorDefecto]);
 
   const totalActivosCount = useMemo(
     () => students.filter((s) => s.activo !== false).length,
@@ -235,6 +277,117 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
     () => students.filter((s) => s.activo === false).length,
     [students]
   );
+  const totalAlumnosCount = useMemo(
+    () => students.filter((s) => (s.tipoMiembro || 'alumno') === 'alumno').length,
+    [students]
+  );
+  const totalSociosCount = useMemo(
+    () => students.filter((s) => s.tipoMiembro === 'socio').length,
+    [students]
+  );
+  const totalSocioAlumnosCount = useMemo(
+    () => students.filter((s) => s.tipoMiembro === 'socio_alumno').length,
+    [students]
+  );
+
+  // Alumnos que están de cumpleaños hoy y en el mes
+  const todayBirthdays = useMemo(() => {
+    return students.filter(
+      (s) => s.activo !== false && isTodayBirthday(s.fechaNacimiento)
+    );
+  }, [students]);
+
+  const monthBirthdays = useMemo(() => {
+    return students.filter(
+      (s) => s.activo !== false && isThisMonthBirthday(s.fechaNacimiento) && !isTodayBirthday(s.fechaNacimiento)
+    );
+  }, [students]);
+
+  const handleOpenBirthdayModal = (student: Student) => {
+    const edad = calculateAge(student.fechaNacimiento);
+    const edadTexto = edad !== null ? ` en sus ${edad} años` : '';
+    const cursoNombre = config.nombreCurso || 'nuestro curso';
+
+    setBirthdayModalStudent(student);
+    setBirthdaySubject(`🎂🎈 ¡Muy Feliz Cumpleaños, ${student.nombres}! - ${cursoNombre}`);
+    setBirthdayCustomMessage(
+      `En nombre de la directiva y de toda la comunidad escolar de ${cursoNombre}, queremos enviar un muy afectuoso y cariñoso saludo de Feliz Cumpleaños a ${student.nombres} ${student.apellidos}${edadTexto}.\n\n` +
+      `Deseamos de todo corazón que pase un día extraordinario junto a sus seres queridos, lleno de alegrías, juegos y mucho amor.\n\n` +
+      `¡Muchas felicidades en su día!`
+    );
+    setBirthdaySendResult(null);
+  };
+
+  const handleSendBirthdayEmail = async () => {
+    if (!birthdayModalStudent) return;
+    if (!birthdayModalStudent.emailApoderado || !birthdayModalStudent.emailApoderado.trim()) {
+      setBirthdaySendResult({
+        success: false,
+        message: `El alumno ${birthdayModalStudent.nombres} no tiene registrado el correo electrónico del apoderado.`,
+      });
+      return;
+    }
+
+    const activeSmtp = config.smtpConfig;
+    if (!activeSmtp || !activeSmtp.user || !activeSmtp.pass) {
+      setBirthdaySendResult({
+        success: false,
+        message:
+          'El servidor SMTP no está configurado aún. Por favor ve a la pestaña "Administración" -> "Configuración del Servidor de Correo (SMTP)" para ingresar las credenciales de correo (Gmail, Outlook, etc.). También puedes enviar el saludo inmediatamente por WhatsApp usando el botón de abajo.',
+      });
+      return;
+    }
+
+    setIsSendingBirthdayEmail(true);
+    setBirthdaySendResult(null);
+
+    try {
+      const session = getStoredAuthSession();
+      const gestorName = session?.gestorUser?.nombre || (userRole === 'admin' ? 'Administrador' : 'Gestor');
+
+      const res = await sendBirthdayGreetingEmail({
+        student: birthdayModalStudent,
+        config,
+        smtpConfig: activeSmtp,
+        customMessage: birthdayCustomMessage,
+        senderName: `Directiva y Tesorería ${config.nombreCurso}`,
+      });
+
+      if (res.success) {
+        setBirthdaySendResult({
+          success: true,
+          message: `¡Correo de cumpleaños enviado con éxito a ${birthdayModalStudent.emailApoderado}!`,
+        });
+
+        addMovementLog({
+          modulo: 'estudiantes',
+          tipoAccion: 'notificacion_enviada',
+          titulo: `Correo de Cumpleaños Enviado: ${birthdayModalStudent.nombres}`,
+          descripcion: `Se despachó exitosamente el saludo de cumpleaños vía SMTP a ${birthdayModalStudent.emailApoderado} (Apoderado: ${birthdayModalStudent.nombreApoderado || 'N/A'}).`,
+          usuario: gestorName,
+          rol: userRole,
+          referenciaId: birthdayModalStudent.id,
+          referenciaNombre: `${birthdayModalStudent.nombres} ${birthdayModalStudent.apellidos}`,
+          detallesAdicionales: {
+            destinatario: birthdayModalStudent.emailApoderado,
+            fechaNacimiento: birthdayModalStudent.fechaNacimiento,
+          },
+        });
+      } else {
+        setBirthdaySendResult({
+          success: false,
+          message: res.error || 'No se pudo enviar el correo vía SMTP.',
+        });
+      }
+    } catch (err: any) {
+      setBirthdaySendResult({
+        success: false,
+        message: `Error al enviar correo: ${err.message || 'Error de conexión'}`,
+      });
+    } finally {
+      setIsSendingBirthdayEmail(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -288,67 +441,124 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
         </div>
 
         {/* Status segment buttons */}
-        <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start md:self-auto overflow-x-auto">
-          <button
-            onClick={() => setStatusFilter('all')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-              statusFilter === 'all'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Todos ({students.length})
-          </button>
-          <button
-            onClick={() => setStatusFilter('active')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-              statusFilter === 'active'
-                ? 'bg-white text-emerald-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Activos ({totalActivosCount})
-          </button>
-          <button
-            onClick={() => setStatusFilter('inactive')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-              statusFilter === 'inactive'
-                ? 'bg-white text-amber-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Inactivos ({totalInactivosCount})
-          </button>
-          <button
-            onClick={() => setStatusFilter('up_to_date')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-              statusFilter === 'up_to_date'
-                ? 'bg-white text-emerald-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Al Día
-          </button>
-          <button
-            onClick={() => setStatusFilter('debt')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-              statusFilter === 'debt'
-                ? 'bg-white text-red-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Con Deuda
-          </button>
-          <button
-            onClick={() => setStatusFilter('exempt')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-              statusFilter === 'exempt'
-                ? 'bg-white text-purple-700 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Exentos
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Categoría / Condición */}
+          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setMemberTypeFilter('all')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                memberTypeFilter === 'all'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Todos ({students.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setMemberTypeFilter('alumno')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                memberTypeFilter === 'alumno'
+                  ? 'bg-sky-50 text-sky-800 shadow-xs border border-sky-300 font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Alumnos ({totalAlumnosCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setMemberTypeFilter('socio')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                memberTypeFilter === 'socio'
+                  ? 'bg-amber-50 text-amber-800 shadow-xs border border-amber-300 font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Socios ({totalSociosCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setMemberTypeFilter('socio_alumno')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                memberTypeFilter === 'socio_alumno'
+                  ? 'bg-indigo-50 text-indigo-800 shadow-xs border border-indigo-300 font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Socio/Alumno ({totalSocioAlumnosCount})
+            </button>
+          </div>
+
+          {/* Estado de Pagos / Matrícula */}
+          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setStatusFilter('all')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                statusFilter === 'all'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Cualquier Estado
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('active')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                statusFilter === 'active'
+                  ? 'bg-white text-emerald-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Activos ({totalActivosCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('inactive')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                statusFilter === 'inactive'
+                  ? 'bg-white text-amber-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Inactivos ({totalInactivosCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('up_to_date')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                statusFilter === 'up_to_date'
+                  ? 'bg-white text-emerald-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Al Día
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('debt')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                statusFilter === 'debt'
+                  ? 'bg-white text-red-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Con Deuda
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('exempt')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                statusFilter === 'exempt'
+                  ? 'bg-white text-purple-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Exentos
+            </button>
+          </div>
         </div>
       </div>
 
@@ -396,8 +606,21 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                     >
                       {/* Name */}
                       <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                        <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5 flex-wrap">
                           <span>{student.nombres} {student.apellidos}</span>
+                          {student.tipoMiembro === 'socio' ? (
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-300 px-1.5 py-0.5 rounded shadow-2xs">
+                              Socio
+                            </span>
+                          ) : student.tipoMiembro === 'socio_alumno' ? (
+                            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-300 px-1.5 py-0.5 rounded shadow-2xs">
+                              Socio/Alumno
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-300 px-1.5 py-0.5 rounded shadow-2xs">
+                              Alumno
+                            </span>
+                          )}
                           {!isActivo && (
                             <span className="text-[10px] font-bold text-slate-500 bg-slate-200 px-1.5 py-0.2 rounded">
                               Inactivo
@@ -477,9 +700,9 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                         <div className="font-semibold text-slate-800">
                           {student.nombreApoderado || 'No registrado'}
                         </div>
-                        <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
-                          <Phone className="w-3 h-3 text-slate-400" />
-                          <span>{student.telefonoApoderado || '-'}</span>
+                        <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-0.5 font-mono">
+                          <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{formatChileanMobile(student.telefonoApoderado) || student.telefonoApoderado || '-'}</span>
                         </div>
                       </td>
 
@@ -653,6 +876,77 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                 </div>
               </div>
 
+              {/* TIPO DE REGISTRO / CONDICIÓN */}
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-800">
+                    Tipo de Registro / Condición *
+                  </label>
+                  <span className="text-[11px] text-slate-500 font-medium">Define si es Alumno, Socio o Socio/Alumno</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setFormTipoMiembro('alumno')}
+                    className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
+                      formTipoMiembro === 'alumno'
+                        ? 'bg-sky-50 border-sky-400 ring-2 ring-sky-300/60 shadow-xs'
+                        : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-sky-950">Alumno</span>
+                      {formTipoMiembro === 'alumno' && (
+                        <span className="w-2.5 h-2.5 rounded-full bg-sky-600"></span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-500">
+                      Alumno regular que participa en actividades
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFormTipoMiembro('socio')}
+                    className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
+                      formTipoMiembro === 'socio'
+                        ? 'bg-amber-50 border-amber-400 ring-2 ring-amber-300/60 shadow-xs'
+                        : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-amber-950">Socio</span>
+                      {formTipoMiembro === 'socio' && (
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-600"></span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-500">
+                      Socio colaborador o apoderado de la entidad
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFormTipoMiembro('socio_alumno')}
+                    className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
+                      formTipoMiembro === 'socio_alumno'
+                        ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-300/60 shadow-xs'
+                        : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-indigo-950">Socio / Alumno</span>
+                      {formTipoMiembro === 'socio_alumno' && (
+                        <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-500">
+                      Cumple rol dual de socio y alumno activo
+                    </span>
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -684,17 +978,26 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Teléfono Apoderado (WhatsApp) *
+                  <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                    <span>Teléfono Celular Apoderado (WhatsApp) *</span>
+                    <span className="font-mono text-[10px] text-indigo-600 font-semibold">+56 9 NNNN NNNN</span>
                   </label>
                   <input
                     type="text"
                     required
                     value={formTelefonoApoderado}
-                    onChange={(e) => setFormTelefonoApoderado(e.target.value)}
-                    placeholder="Ej: +56 9 1234 5678"
+                    onChange={(e) => setFormTelefonoApoderado(formatChileanMobile(e.target.value))}
+                    onFocus={() => {
+                      if (!formTelefonoApoderado || formTelefonoApoderado.trim() === '') {
+                        setFormTelefonoApoderado('+56 9 ');
+                      }
+                    }}
+                    placeholder="+56 9 1234 5678"
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-indigo-600"
                   />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Formato oficial: <strong>+56 9 NNNN NNNN</strong> (móvil chileno de 8 dígitos)
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -901,6 +1204,19 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                   <h3 className="font-bold text-lg text-white">
                     {viewingStudent.nombres} {viewingStudent.apellidos}
                   </h3>
+                  {viewingStudent.tipoMiembro === 'socio' ? (
+                    <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded font-bold">
+                      Socio
+                    </span>
+                  ) : viewingStudent.tipoMiembro === 'socio_alumno' ? (
+                    <span className="text-[10px] bg-indigo-500 text-white px-2 py-0.5 rounded font-bold">
+                      Socio / Alumno
+                    </span>
+                  ) : (
+                    <span className="text-[10px] bg-sky-600 text-white px-2 py-0.5 rounded font-bold">
+                      Alumno
+                    </span>
+                  )}
                   {viewingStudent.activo === false ? (
                     <span className="text-[10px] bg-slate-600 text-white px-2 py-0.5 rounded font-bold">
                       Inactivo / Retirado
@@ -958,6 +1274,22 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                       : 'No registrada'}
                   </div>
                   <div className="text-xs text-slate-700">
+                    <span className="font-semibold block">Categoría / Condición:</span>
+                    {viewingStudent.tipoMiembro === 'socio' ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                        Socio
+                      </span>
+                    ) : viewingStudent.tipoMiembro === 'socio_alumno' ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-300">
+                        Socio / Alumno
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-sky-50 text-sky-800 border border-sky-300">
+                        Alumno
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-700">
                     <span className="font-semibold block">Condición de Matrícula:</span>
                     <span className={viewingStudent.activo !== false ? 'text-emerald-700 font-bold' : 'text-slate-600 font-bold'}>
                       {viewingStudent.activo !== false ? 'Alumno Activo' : 'Alumno Inactivo'}
@@ -975,8 +1307,10 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                   </div>
                   <div className="text-xs text-slate-700 flex items-center justify-between">
                     <div>
-                      <span className="font-semibold block">Teléfono:</span>
-                      {viewingStudent.telefonoApoderado}
+                      <span className="font-semibold block">Teléfono Celular (WhatsApp):</span>
+                      <span className="font-mono font-bold text-slate-900 text-sm">
+                        {formatChileanMobile(viewingStudent.telefonoApoderado) || viewingStudent.telefonoApoderado || 'No registrado'}
+                      </span>
                     </div>
                     <button
                       onClick={() =>

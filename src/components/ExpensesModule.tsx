@@ -196,7 +196,6 @@ export const ExpensesModule: React.FC<ExpensesModuleProps> = ({
         tipoAccion: 'gasto_creado',
         titulo: `Rendición de Gasto Registrada ($${Number(formMonto).toLocaleString('es-CL')})`,
         descripcion: `Gasto "${newExp.descripcion}" registrado. Proveedor: ${newExp.proveedor || 'N/A'}, Boleta: ${newExp.numeroBoleta || 'S/N'}, Categoría: ${catNombre}.`,
-        usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
         rol: userRole,
         montoAfectado: Number(formMonto),
         referenciaId: newExp.id,
@@ -227,7 +226,6 @@ export const ExpensesModule: React.FC<ExpensesModuleProps> = ({
         tipoAccion: 'gasto_editado',
         titulo: `Gasto Modificado: ${formDescripcion.trim()}`,
         descripcion: `Se actualizaron los datos del gasto. Nuevo monto: $${Number(formMonto).toLocaleString('es-CL')} CLP. Proveedor: ${formProveedor.trim() || 'N/A'}.`,
-        usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
         rol: userRole,
         montoAfectado: Number(formMonto),
         referenciaId: editingExpense.id,
@@ -241,7 +239,7 @@ export const ExpensesModule: React.FC<ExpensesModuleProps> = ({
 
   const handleDeleteExpense = (id: string) => {
     if (isAuditor) return;
-    const target = expenses.find((e) => e.id !== id);
+    const target = expenses.find((e) => e.id === id);
     onUpdateExpenses(expenses.filter((e) => e.id !== id));
 
     if (target) {
@@ -250,7 +248,6 @@ export const ExpensesModule: React.FC<ExpensesModuleProps> = ({
         tipoAccion: 'gasto_eliminado',
         titulo: `Gasto Eliminado: ${target.descripcion}`,
         descripcion: `Se eliminó el registro de gasto por $${target.monto.toLocaleString('es-CL')} CLP (Boleta: ${target.numeroBoleta || 'S/N'}, Proveedor: ${target.proveedor || 'N/A'}).`,
-        usuario: userRole === 'admin' ? 'Administrador' : 'Gestor',
         rol: userRole,
         montoAfectado: target.monto,
         referenciaId: target.id,

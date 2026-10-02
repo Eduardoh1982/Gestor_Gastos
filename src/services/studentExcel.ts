@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { Student, CourseConfig, MONTH_NAMES, FeePayment } from '../types';
 import { getStudentAnnualSummary, formatCurrency } from './storage';
+import { formatChileanPhoneDisplay } from './phoneUtils';
 
 export function calculateAge(birthDateStr?: string): number | null {
   if (!birthDateStr) return null;
@@ -68,6 +69,7 @@ export function exportStudentsListToExcel(
     'Apellidos',
     'Nombre Completo',
     'Estado Matrícula',
+    'Categoría / Tipo de Registro',
     'Fecha de Nacimiento',
     'Edad (Años)',
     'Fecha de Ingreso Oficial',
@@ -75,7 +77,7 @@ export function exportStudentsListToExcel(
     'Mes de Ingreso',
     'Condición de Cuota',
     'Nombre Apoderado',
-    'Teléfono Apoderado',
+    'Teléfono Celular Apoderado (+56 9)',
     'Email Apoderado',
     ...(payments
       ? [
@@ -95,6 +97,13 @@ export function exportStudentsListToExcel(
     const tipoIngresoStr = s.tipoIngreso === 'full_year' ? 'Año Completo' : 'A Mitad de Año';
     const mesIngresoStr = s.tipoIngreso === 'mid_year' ? MONTH_NAMES[s.mesIngreso] : 'Enero';
     const condicionCuota = s.noPagaCuota ? 'Exento (No paga cuota)' : 'Paga Cuota Regular';
+
+    const tipoMiembroStr =
+      s.tipoMiembro === 'socio'
+        ? 'Socio'
+        : s.tipoMiembro === 'socio_alumno'
+        ? 'Socio/Alumno'
+        : 'Alumno';
 
     let financialItems: (string | number)[] = [];
     if (payments) {
@@ -133,6 +142,7 @@ export function exportStudentsListToExcel(
       s.apellidos || '-',
       `${s.nombres} ${s.apellidos}`.trim(),
       estado,
+      tipoMiembroStr,
       s.fechaNacimiento ? formatDateCL(s.fechaNacimiento) : 'No informada',
       age !== null ? `${age} años` : '-',
       s.fechaIngreso ? formatDateCL(s.fechaIngreso) : 'No informada',
@@ -140,7 +150,7 @@ export function exportStudentsListToExcel(
       mesIngresoStr,
       condicionCuota,
       s.nombreApoderado || '-',
-      s.telefonoApoderado || '-',
+      formatChileanPhoneDisplay(s.telefonoApoderado) || s.telefonoApoderado || '-',
       s.emailApoderado || '-',
       ...financialItems,
       s.observaciones || '-',
@@ -159,6 +169,7 @@ export function exportStudentsListToExcel(
     { wch: 22 }, // Apellidos
     { wch: 28 }, // Nombre Completo
     { wch: 18 }, // Estado Matrícula
+    { wch: 22 }, // Categoría / Tipo
     { wch: 18 }, // Fecha Nacimiento
     { wch: 12 }, // Edad
     { wch: 20 }, // Fecha Ingreso
@@ -166,7 +177,7 @@ export function exportStudentsListToExcel(
     { wch: 15 }, // Mes Ingreso
     { wch: 22 }, // Condición Cuota
     { wch: 26 }, // Apoderado
-    { wch: 18 }, // Teléfono
+    { wch: 22 }, // Teléfono Celular (+56 9)
     { wch: 28 }, // Email
     ...(payments
       ? [

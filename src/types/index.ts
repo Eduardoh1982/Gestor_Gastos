@@ -17,6 +17,8 @@ export const MONTH_NAMES = [
 
 export type EntryType = 'full_year' | 'mid_year';
 
+export type MemberType = 'alumno' | 'socio' | 'socio_alumno';
+
 export interface Student {
   id: string;
   nombres: string;
@@ -29,6 +31,7 @@ export interface Student {
   mesIngreso: MonthIndex; // 0 = Enero, 1 = Feb, etc. Relevant if tipoIngreso === 'mid_year'
   noPagaCuota: boolean; // Exempt / Scholarship flag ("No paga cuota")
   activo?: boolean; // Activo (true) o Inactivo/Retirado (false)
+  tipoMiembro?: MemberType; // 'alumno' | 'socio' | 'socio_alumno'
   fechaNacimiento?: string; // Formato YYYY-MM-DD
   fechaIngreso?: string; // Formato YYYY-MM-DD
   observaciones?: string;
@@ -91,6 +94,7 @@ export interface ExtraIncome {
   montoPorAlumno?: number;
   alumnosPagados?: string[]; // IDs de los alumnos que han pagado
   alumnosExentos?: string[]; // IDs de los alumnos exentos de este cobro extraordinario
+  foliosPorAlumno?: Record<string, string>; // IDs del alumno -> folio correlativo asignado (ej: "001", "002" editable)
 }
 
 export type LogActionType =
@@ -107,6 +111,7 @@ export type LogActionType =
   | 'ingreso_extra_eliminado'
   | 'ingreso_extra_pago_alumno'
   | 'ingreso_extra_exencion_alumno'
+  | 'ingreso_extra_folio_alumno'
   | 'notificacion_enviada'
   | 'sistema_reset'
   | 'sistema_config';
@@ -119,7 +124,7 @@ export interface MovementLog {
   tipoAccion: LogActionType;
   titulo: string;
   descripcion: string;
-  usuario: string; // Nombre o username del gestor
+  usuario?: string; // Nombre del gestor responsable (no el rol)
   rol: UserRole;
   montoAfectado?: number;
   referenciaId?: string; // id del alumno, gasto o ingreso extra

@@ -3,9 +3,14 @@ import { getMonthlyStatus, formatCurrency } from './storage';
 
 export function cleanPhoneNumber(rawPhone: string): string {
   let cleaned = rawPhone.replace(/\D/g, '');
+  if (cleaned.startsWith('569') && cleaned.length === 11) {
+    return cleaned;
+  }
   // If it's Chilean 9 digits starting with 9, prepend 56
   if (cleaned.length === 9 && cleaned.startsWith('9')) {
     cleaned = '56' + cleaned;
+  } else if (cleaned.length === 8) {
+    cleaned = '569' + cleaned;
   }
   return cleaned;
 }
@@ -105,16 +110,22 @@ export function openExtraIncomeWhatsAppChat(
   concepto: string,
   monto: number,
   descripcion: string,
-  config: CourseConfig
+  config: CourseConfig,
+  folio?: string
 ) {
   const phone = cleanPhoneNumber(student.telefonoApoderado);
   const lines: string[] = [
     `👋 *Estimado/a ${student.nombreApoderado || 'Apoderado/a'}:*`,
     `Le saludamos desde la Tesorería de *${config.nombreCurso}* (${config.institucion}).`,
     `Le recordamos sobre el cobro de *${concepto}* (${descripcion}) para el alumno/a *${student.nombres} ${student.apellidos}*.`,
-    `💰 *Monto a cancelar:* ${formatCurrency(monto)}`,
-    `📌 *Estado:* ⚠️ Pendiente de pago`,
   ];
+
+  if (folio) {
+    lines.push(`🏷️ *Folio Asignado:* #${folio}`);
+  }
+
+  lines.push(`💰 *Monto a cancelar:* ${formatCurrency(monto)}`);
+  lines.push(`📌 *Estado:* ⚠️ Pendiente de pago`);
 
   if (config.datosBancarios?.numeroCuenta) {
     lines.push('\n🏦 *Datos para Transferencia:*');
@@ -124,7 +135,7 @@ export function openExtraIncomeWhatsAppChat(
     lines.push(`• *Titular:* ${config.datosBancarios.titularNombre}`);
     lines.push(`• *RUT:* ${config.datosBancarios.titularRut}`);
     lines.push(`• *Email Comprobante:* ${config.datosBancarios.emailConfirmacion}`);
-    lines.push(`\n📌 _Al transferir, por favor indique en el asunto: "${student.nombres} ${student.apellidos} - ${concepto}"._`);
+    lines.push(`\n📌 _Al transferir, por favor indique en el asunto: "${student.nombres} ${student.apellidos} - ${concepto}${folio ? ` (Folio #${folio})` : ''}"._`);
   }
 
   lines.push('\nMuchas gracias por su compromiso y colaboración.');
@@ -134,3 +145,34 @@ export function openExtraIncomeWhatsAppChat(
   const url = phone ? `https://wa.me/${phone}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
   window.open(url, '_blank', 'noopener,noreferrer');
 }
+
+export function openBirthdayWhatsAppChat(
+  student: Student,
+  config: CourseConfig,
+  customMessage?: string
+) {
+  const phone = cleanPhoneNumber(student.telefonoApoderado);
+  const lines: string[] = [];
+
+  lines.push(`🎂🎈 *¡Feliz Cumpleaños a ${student.nombres}!* 🎈🎂`);
+  lines.push(`Estimado/a *${student.nombreApoderado || 'Familia'}*:`);
+  lines.push(
+    `Desde la directiva y toda la comunidad de *${config.nombreCurso}* queremos hacerle llegar un cariñoso saludo de Feliz Cumpleaños para *${student.nombres} ${student.apellidos}*.`
+  );
+
+  if (customMessage?.trim()) {
+    lines.push(`\n"${customMessage.trim()}"`);
+  } else {
+    lines.push(
+      `\n🌟 ¡Deseamos que pase un día extraordinario lleno de juegos, sonrisas y momentos inolvidables en compañía de su familia!`
+    );
+  }
+
+  lines.push(`\n¡Muchas felicidades y un gran abrazo de parte de todo el curso! 🥳🎁🎉`);
+
+  const text = lines.join('\n');
+  const encoded = encodeURIComponent(text);
+  const url = phone ? `https://wa.me/${phone}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
