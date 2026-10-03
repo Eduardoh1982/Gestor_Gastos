@@ -9,6 +9,7 @@ import {
   UserRole,
   GestorUser,
   AuthSession,
+  RifaBingoItem,
 } from './types';
 import {
   getStoredConfig,
@@ -21,6 +22,8 @@ import {
   saveStoredExpenses,
   getStoredExtraIncomes,
   saveStoredExtraIncomes,
+  getStoredRifasBingos,
+  saveStoredRifasBingos,
   getStoredCategories,
   saveStoredCategories,
   getStoredGestorUsers,
@@ -35,6 +38,7 @@ import { IncomeGridModule } from './components/IncomeGridModule';
 import { StudentModule } from './components/StudentModule';
 import { ExpensesModule } from './components/ExpensesModule';
 import { ExtraIncomeModule } from './components/ExtraIncomeModule';
+import { RifasBingosModule } from './components/RifasBingosModule';
 import { ReportsModule } from './components/ReportsModule';
 import { AdminModule } from './components/AdminModule';
 import { ParentPortal } from './components/ParentPortal';
@@ -52,6 +56,7 @@ export default function App() {
   const [payments, setPayments] = useState<FeePayment[]>(() => getStoredPayments());
   const [expenses, setExpenses] = useState<Expense[]>(() => getStoredExpenses());
   const [extraIncomes, setExtraIncomes] = useState<ExtraIncome[]>(() => getStoredExtraIncomes());
+  const [rifasBingos, setRifasBingos] = useState<RifaBingoItem[]>(() => getStoredRifasBingos());
   const [categories, setCategories] = useState<ExpenseCategory[]>(() => getStoredCategories());
   const [gestorUsers, setGestorUsers] = useState<GestorUser[]>(() => getStoredGestorUsers());
 
@@ -185,6 +190,11 @@ export default function App() {
     saveStoredExtraIncomes(newExtraIncomes);
   };
 
+  const handleUpdateRifasBingos = (newRifasBingos: RifaBingoItem[]) => {
+    setRifasBingos(newRifasBingos);
+    saveStoredRifasBingos(newRifasBingos);
+  };
+
   const handleUpdateCategories = (newCategories: ExpenseCategory[]) => {
     setCategories(newCategories);
     saveStoredCategories(newCategories);
@@ -235,6 +245,7 @@ export default function App() {
     setPayments(getStoredPayments());
     setExpenses(getStoredExpenses());
     setExtraIncomes(getStoredExtraIncomes());
+    setRifasBingos(getStoredRifasBingos());
     setCategories(getStoredCategories());
     setGestorUsers(getStoredGestorUsers());
   };
@@ -324,6 +335,7 @@ export default function App() {
         studentsCount={students.length}
         expensesCount={expenses.filter((e) => e.year === selectedYear).length}
         extraIncomesCount={extraIncomes.filter((i) => i.year === selectedYear).length}
+        rifasCount={rifasBingos.filter((r) => r.year === selectedYear).length}
         secondsRemaining={secondsRemaining}
         onResetTimer={handleResetTimer}
       />
@@ -381,6 +393,17 @@ export default function App() {
             year={selectedYear}
             extraIncomes={extraIncomes}
             onUpdateExtraIncomes={handleUpdateExtraIncomes}
+            students={students}
+            config={config}
+            userRole={currentRole}
+          />
+        )}
+
+        {currentTab === 'rifas-bingos' && (
+          <RifasBingosModule
+            year={selectedYear}
+            rifasBingos={rifasBingos}
+            onUpdateRifasBingos={handleUpdateRifasBingos}
             students={students}
             config={config}
             userRole={currentRole}

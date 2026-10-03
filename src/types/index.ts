@@ -112,15 +112,46 @@ export type LogActionType =
   | 'ingreso_extra_pago_alumno'
   | 'ingreso_extra_exencion_alumno'
   | 'ingreso_extra_folio_alumno'
+  | 'rifa_bingo_creado'
+  | 'rifa_bingo_editado'
+  | 'rifa_bingo_eliminado'
+  | 'rifa_bingo_emitido'
   | 'notificacion_enviada'
   | 'sistema_reset'
   | 'sistema_config';
+
+export interface RifaPremio {
+  id: string;
+  lugar: number;
+  nombre: string;
+  descripcion?: string;
+  donadoPor?: string;
+}
+
+export interface RifaBingoItem {
+  id: string;
+  tipo: 'rifa' | 'bingo';
+  titulo: string;
+  descripcion: string;
+  fechaSorteo: string;
+  horaSorteo?: string;
+  lugarSorteo: string;
+  valorNumero: number;
+  cantidadNumerosPorAlumno: number;
+  premios: RifaPremio[];
+  codigoRegistroBase: string;
+  observaciones?: string;
+  year: number;
+  fechaCreacion: string;
+  foliosPorAlumno?: Record<string, string>;
+  estado?: 'activa' | 'finalizada';
+}
 
 export interface MovementLog {
   id: string;
   fechaHora: string; // Formato ISO
   timestamp: number;
-  modulo: 'cuotas' | 'gastos' | 'ingresos_extra' | 'sistema' | 'estudiantes';
+  modulo: 'cuotas' | 'gastos' | 'ingresos_extra' | 'sistema' | 'estudiantes' | 'rifas_bingos';
   tipoAccion: LogActionType;
   titulo: string;
   descripcion: string;

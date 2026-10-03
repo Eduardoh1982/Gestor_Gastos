@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  Ticket,
 } from 'lucide-react';
 import { UserRole, CourseConfig, AuthSession } from '../types';
 import { getEffectiveLogo } from '../assets/logo';
@@ -33,6 +34,7 @@ interface NavbarProps {
   studentsCount?: number;
   expensesCount?: number;
   extraIncomesCount?: number;
+  rifasCount?: number;
   secondsRemaining?: number;
   onResetTimer?: () => void;
 }
@@ -51,6 +53,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   studentsCount = 0,
   expensesCount = 0,
   extraIncomesCount = 0,
+  rifasCount = 0,
   secondsRemaining,
   onResetTimer,
 }) => {
@@ -82,6 +85,13 @@ export const Navbar: React.FC<NavbarProps> = ({
       icon: Sparkles,
       badge: `${extraIncomesCount} Eventos`,
       badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+    },
+    {
+      id: 'rifas-bingos',
+      label: 'Rifas y Bingos',
+      icon: Ticket,
+      badge: rifasCount > 0 ? `${rifasCount} Act.` : 'Carta / PDF',
+      badgeColor: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
     },
     {
       id: 'reportes',
@@ -117,8 +127,13 @@ export const Navbar: React.FC<NavbarProps> = ({
         };
       case 'ingresos-extra':
         return {
-          title: 'Ingresos Extraordinarios y Rifas',
+          title: 'Ingresos Extraordinarios',
           desc: `Gestión de ${extraIncomesCount} actividades. Control general y seguimiento nominal de cobros con monto fijo por alumno.`,
+        };
+      case 'rifas-bingos':
+        return {
+          title: 'Gestión y Emisión de Rifas y Bingos',
+          desc: 'Emisión de rifas en 1 hoja carta por alumno y cartones de bingo en 1/4 de carta para alumnos activos y exentos, con logo, cuenta bancaria, folios y código QR de autenticidad.',
         };
       case 'reportes':
         return {

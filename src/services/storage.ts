@@ -11,6 +11,7 @@ import {
   AuthSession,
   MovementLog,
   LogActionType,
+  RifaBingoItem,
 } from '../types';
 
 const STORAGE_KEYS = {
@@ -19,6 +20,7 @@ const STORAGE_KEYS = {
   PAYMENTS: 'tesoreria_payments_v1',
   EXPENSES: 'tesoreria_expenses_v1',
   EXTRA_INCOMES: 'tesoreria_extra_incomes_v1',
+  RIFAS_BINGOS: 'tesoreria_rifas_bingos_v1',
   CATEGORIES: 'tesoreria_categories_v1',
   GESTOR_USERS: 'tesoreria_gestor_users_v1',
   AUTH_SESSION: 'tesoreria_auth_session_v1',
@@ -296,6 +298,52 @@ export const DEFAULT_EXTRA_INCOMES: ExtraIncome[] = [
   },
 ];
 
+export const DEFAULT_RIFAS_BINGOS: RifaBingoItem[] = [
+  {
+    id: 'rb-rifa-1',
+    tipo: 'rifa',
+    titulo: 'Gran Rifa Anual Pro-Fondos de Fin de Año',
+    descripcion: 'Actividad oficial de financiamiento de actividades y despedida del curso.',
+    fechaSorteo: '2026-11-28',
+    horaSorteo: '18:30 hrs',
+    lugarSorteo: 'Gimnasio del Establecimiento',
+    valorNumero: 1000,
+    cantidadNumerosPorAlumno: 10,
+    codigoRegistroBase: 'RF-2026',
+    year: CURRENT_SYSTEM_YEAR,
+    fechaCreacion: '2026-03-01T10:00:00.000Z',
+    estado: 'activa',
+    premios: [
+      { id: 'p-1', lugar: 1, nombre: '1° Premio: Smart TV 43" 4K UHD', descripcion: 'Marca líder con garantía oficial' },
+      { id: 'p-2', lugar: 2, nombre: '2° Premio: Freidora de Aire Digital 5.5L', descripcion: 'Doble canasto multifunción' },
+      { id: 'p-3', lugar: 3, nombre: '3° Premio: Set Parrillero Premium + Canasta Gourmet', descripcion: 'Cuchillos, tabla nativa y accesorios' },
+      { id: 'p-4', lugar: 4, nombre: '4° Premio: Gift Card $30.000 en Supermercado', descripcion: 'Válida en cadenas nacionales' },
+    ],
+    observaciones: 'Cada número cancelado participa en el sorteo oficial. Talonarios deben entregarse con la recaudación antes del 20 de Noviembre.',
+  },
+  {
+    id: 'rb-bingo-1',
+    tipo: 'bingo',
+    titulo: 'Gran Bingo Familiar y Kermesse Escolar',
+    descripcion: 'Tarde recreativa, juegos típicos, comida y grandes premios para toda la comunidad escolar.',
+    fechaSorteo: '2026-10-24',
+    horaSorteo: '16:00 hrs',
+    lugarSorteo: 'Patio Central del Establecimiento',
+    valorNumero: 2000,
+    cantidadNumerosPorAlumno: 4,
+    codigoRegistroBase: 'BG-2026',
+    year: CURRENT_SYSTEM_YEAR,
+    fechaCreacion: '2026-03-15T12:00:00.000Z',
+    estado: 'activa',
+    premios: [
+      { id: 'pb-1', lugar: 1, nombre: 'Premio Mayor: $150.000 en Efectivo', descripcion: 'Cartón Lleno' },
+      { id: 'pb-2', lugar: 2, nombre: 'Premio Línea: Horno Microondas Digital', descripcion: 'Primera línea horizontal o vertical completa' },
+      { id: 'pb-3', lugar: 3, nombre: 'Premio Consuelo: Canasta Familiar Abarrotes', descripcion: 'Sorteo al agua con el número de cartón' },
+    ],
+    observaciones: 'Cartón válido únicamente con el timbre o código QR de autenticidad emitido por la directiva. Prohibido tachar o enmendar números.',
+  },
+];
+
 export function getStoredConfig(): CourseConfig {
   const currentSysYear = new Date().getFullYear();
   try {
@@ -405,6 +453,20 @@ export function getStoredExtraIncomes(): ExtraIncome[] {
 
 export function saveStoredExtraIncomes(incomes: ExtraIncome[]) {
   localStorage.setItem(STORAGE_KEYS.EXTRA_INCOMES, JSON.stringify(incomes));
+}
+
+export function getStoredRifasBingos(): RifaBingoItem[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.RIFAS_BINGOS);
+    if (!raw) return DEFAULT_RIFAS_BINGOS;
+    return JSON.parse(raw);
+  } catch {
+    return DEFAULT_RIFAS_BINGOS;
+  }
+}
+
+export function saveStoredRifasBingos(items: RifaBingoItem[]) {
+  localStorage.setItem(STORAGE_KEYS.RIFAS_BINGOS, JSON.stringify(items));
 }
 
 // Format Chilean currency: $3.000, $21.000
@@ -745,6 +807,7 @@ export function resetAllDataToDefaults() {
   localStorage.setItem(STORAGE_KEYS.PAYMENTS, JSON.stringify(DEFAULT_PAYMENTS));
   localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(DEFAULT_EXPENSES));
   localStorage.setItem(STORAGE_KEYS.EXTRA_INCOMES, JSON.stringify(DEFAULT_EXTRA_INCOMES));
+  localStorage.setItem(STORAGE_KEYS.RIFAS_BINGOS, JSON.stringify(DEFAULT_RIFAS_BINGOS));
   localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
   localStorage.setItem(STORAGE_KEYS.GESTOR_USERS, JSON.stringify(DEFAULT_GESTOR_USERS));
   localStorage.setItem(STORAGE_KEYS.MOVEMENT_LOGS, JSON.stringify(DEFAULT_MOVEMENT_LOGS));
@@ -758,6 +821,7 @@ export function exportAllDataAsJson(): string {
     payments: getStoredPayments(),
     expenses: getStoredExpenses(),
     extraIncomes: getStoredExtraIncomes(),
+    rifasBingos: getStoredRifasBingos(),
     categories: getStoredCategories(),
     gestorUsers: getStoredGestorUsers(),
     movementLogs: getStoredMovementLogs(),
@@ -775,6 +839,7 @@ export function importAllDataFromJson(jsonStr: string): boolean {
     if (data.payments) saveStoredPayments(data.payments);
     if (data.expenses) saveStoredExpenses(data.expenses);
     if (data.extraIncomes) saveStoredExtraIncomes(data.extraIncomes);
+    if (data.rifasBingos) saveStoredRifasBingos(data.rifasBingos);
     if (data.categories) saveStoredCategories(data.categories);
     if (data.gestorUsers) saveStoredGestorUsers(data.gestorUsers);
     if (data.movementLogs) saveStoredMovementLogs(data.movementLogs);
