@@ -69,7 +69,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'alumnos',
       label: 'Alumnos',
       icon: Users,
-      badge: `${studentsCount} Alumnos`,
+      badge: `${studentsCount} Alumnos/Socio`,
       badgeColor: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40',
     },
     {
