@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Expense, ExpenseCategory, UserRole } from '../types';
 import { formatCurrency, addMovementLog } from '../services/storage';
+import { formatThousands, parseThousands } from '../services/formatters';
 
 interface ExpensesModuleProps {
   year: number;
@@ -539,12 +540,15 @@ export const ExpensesModule: React.FC<ExpensesModuleProps> = ({
                     Monto ($ CLP) *
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     required
-                    min={1}
-                    value={formMonto}
-                    onChange={(e) => setFormMonto(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder="Ej: 15000"
+                    value={formMonto !== '' ? formatThousands(formMonto) : ''}
+                    onChange={(e) => {
+                      const parsed = parseThousands(e.target.value);
+                      setFormMonto(e.target.value === '' ? '' : parsed);
+                    }}
+                    placeholder="Ej: 15.000"
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-red-600"
                   />
                 </div>

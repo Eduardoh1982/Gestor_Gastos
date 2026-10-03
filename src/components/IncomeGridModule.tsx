@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   MessageCircle,
@@ -25,6 +25,7 @@ import {
   addMovementLog,
 } from '../services/storage';
 import { openWhatsAppChat } from '../services/whatsapp';
+import { formatThousands, parseThousands } from '../services/formatters';
 
 interface IncomeGridModuleProps {
   year: number;
@@ -57,8 +58,21 @@ export const IncomeGridModule: React.FC<IncomeGridModuleProps> = ({
     isSaldarRestante?: boolean;
   } | null>(null);
   const [paymentModalTab, setPaymentModalTab] = useState<'pago' | 'eximir'>('pago');
+  const [paymentModalMonto, setPaymentModalMonto] = useState<number | ''>('');
   const [motivoExencionInput, setMotivoExencionInput] = useState('Beca acordada por directiva');
   const [confirmRevokePayment, setConfirmRevokePayment] = useState<FeePayment | null>(null);
+
+  useEffect(() => {
+    if (paymentModalData) {
+      setPaymentModalMonto(
+        paymentModalData.restante !== undefined
+          ? paymentModalData.restante
+          : config.cuotaMensualPorDefecto
+      );
+    } else {
+      setPaymentModalMonto('');
+    }
+  }, [paymentModalData, config.cuotaMensualPorDefecto]);
 
   const isAuditor = userRole === 'auditor';
 
@@ -683,7 +697,11 @@ export const IncomeGridModule: React.FC<IncomeGridModuleProps> = ({
                   e.preventDefault();
                   if (isAuditor) return;
                   const form = e.currentTarget;
-                  const nuevoAporte = Number(form.monto.value);
+                  const nuevoAporte =
+                    typeof paymentModalMonto === 'number'
+                      ? paymentModalMonto
+                      : parseThousands(form.monto?.value || '0');
+                  if (nuevoAporte <= 0) return;
                   const fecha = form.fecha.value;
                   const medio = form.medio.value as 'transferencia' | 'efectivo' | 'deposito' | 'otro';
                   const comprobante = form.comprobante.value;
@@ -759,14 +777,15 @@ export const IncomeGridModule: React.FC<IncomeGridModuleProps> = ({
                   </label>
                   <input
                     name="monto"
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     required
-                    min={1}
-                    defaultValue={
-                      paymentModalData.restante !== undefined
-                        ? paymentModalData.restante
-                        : config.cuotaMensualPorDefecto
-                    }
+                    value={paymentModalMonto !== '' ? formatThousands(paymentModalMonto) : ''}
+                    onChange={(e) => {
+                      const parsed = parseThousands(e.target.value);
+                      setPaymentModalMonto(e.target.value === '' ? '' : parsed);
+                    }}
+                    placeholder={`Ej: ${formatThousands(config.cuotaMensualPorDefecto)}`}
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-slate-900"
                   />
                   <span className="text-[10px] text-slate-500 mt-1 block">

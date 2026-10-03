@@ -18,7 +18,8 @@ import {
 } from 'lucide-react';
 import { ExtraIncome, Student, CourseConfig, UserRole } from '../types';
 import { formatCurrency, addMovementLog } from '../services/storage';
-import { cleanPhoneNumber } from '../services/whatsapp';
+import { cleanPhoneNumber, openExtraIncomeWhatsAppChat } from '../services/whatsapp';
+import { formatThousands, parseThousands } from '../services/currencyUtils';
 
 interface ExtraIncomeModuleProps {
   year: number;
@@ -45,6 +46,10 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
   const [deletingIncome, setDeletingIncome] = useState<ExtraIncome | null>(null);
   const [trackingIncome, setTrackingIncome] = useState<ExtraIncome | null>(null);
   const [trackingFilter, setTrackingFilter] = useState<'all' | 'paid' | 'pending' | 'exempt'>('all');
+
+  // Folio state for tracking per-student
+  const [editingFolioStudentId, setEditingFolioStudentId] = useState<string | null>(null);
+  const [folioInputValue, setFolioInputValue] = useState<string>('');
 
   // Form states
   const [formConcepto, setFormConcepto] = useState('Rifa');
@@ -85,7 +90,7 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
     setFormOrigenFondos('Venta de números por alumnos y apoderados');
     setFormObservaciones('');
     setFormTipoCobro('fijo_por_alumno');
-    setFormMontoPorAlumno(5000);
+    setFormMontoPorAlumno('');
     setFormAlumnosPagados([]);
     setEditingIncome(null);
     setModalMode('create');
@@ -126,6 +131,13 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
     if (finalMonto < 0) return;
 
     if (modalMode === 'create') {
+      const initialFolios: Record<string, string> = {};
+      if (formTipoCobro === 'fijo_por_alumno') {
+        students.forEach((st, idx) => {
+          initialFolios[st.id] = String(idx + 1).padStart(3, '0');
+        });
+      }
+
       const newIncome: ExtraIncome = {
         id: `inc-${Date.now()}`,
         year,
@@ -139,6 +151,7 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
         montoPorAlumno: formTipoCobro === 'fijo_por_alumno' ? Number(formMontoPorAlumno) : undefined,
         alumnosPagados: formTipoCobro === 'fijo_por_alumno' ? formAlumnosPagados : undefined,
         alumnosExentos: formTipoCobro === 'fijo_por_alumno' ? [] : undefined,
+        foliosPorAlumno: formTipoCobro === 'fijo_por_alumno' ? initialFolios : undefined,
       };
       onUpdateExtraIncomes([newIncome, ...extraIncomes]);
 
@@ -153,6 +166,13 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
         referenciaNombre: newIncome.concepto,
       });
     } else if (modalMode === 'edit' && editingIncome) {
+      const initialFolios: Record<string, string> = {};
+      if (formTipoCobro === 'fijo_por_alumno') {
+        students.forEach((st, idx) => {
+          initialFolios[st.id] = String(idx + 1).padStart(3, '0');
+        });
+      }
+
       const updated = extraIncomes.map((item) =>
         item.id === editingIncome.id
           ? {
@@ -167,6 +187,7 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
               montoPorAlumno: formTipoCobro === 'fijo_por_alumno' ? Number(formMontoPorAlumno) : undefined,
               alumnosPagados: formTipoCobro === 'fijo_por_alumno' ? formAlumnosPagados : undefined,
               alumnosExentos: formTipoCobro === 'fijo_por_alumno' ? (item.alumnosExentos || []) : undefined,
+              foliosPorAlumno: formTipoCobro === 'fijo_por_alumno' ? (item.foliosPorAlumno || initialFolios) : undefined,
             }
           : item
       );
@@ -207,6 +228,110 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
     }
 
     setDeletingIncome(null);
+  };
+
+  // Abrir modal de seguimiento asegurando que cada alumno tenga su folio asignado
+  const openTrackingModal = (income: ExtraIncome) => {
+    const folios: Record<string, string> = { ...(income.foliosPorAlumno || {}) };
+    let changed = false;
+
+    students.forEach((st, idx) => {
+      if (!folios[st.id]) {
+        folios[st.id] = String(idx + 1).padStart(3, '0');
+        changed = true;
+      }
+    });
+
+    const updatedIncome: ExtraIncome = {
+      ...income,
+      foliosPorAlumno: folios,
+    };
+
+    if (changed) {
+      const updatedList = extraIncomes.map((item) =>
+        item.id === income.id ? updatedIncome : item
+      );
+      onUpdateExtraIncomes(updatedList);
+    }
+
+    setTrackingIncome(updatedIncome);
+    setEditingFolioStudentId(null);
+  };
+
+  // Guardar edición de folio de un alumno
+  const handleSaveStudentFolio = (incomeId: string, studentId: string, newFolio: string) => {
+    if (isAuditor) return;
+    const targetIncome = extraIncomes.find((i) => i.id === incomeId);
+    if (!targetIncome) return;
+
+    const currentFolios = { ...(targetIncome.foliosPorAlumno || {}) };
+    const trimmed = newFolio.trim();
+    if (!trimmed) {
+      setEditingFolioStudentId(null);
+      return;
+    }
+
+    currentFolios[studentId] = trimmed;
+
+    const updatedIncome: ExtraIncome = {
+      ...targetIncome,
+      foliosPorAlumno: currentFolios,
+    };
+
+    const updatedList = extraIncomes.map((item) =>
+      item.id === incomeId ? updatedIncome : item
+    );
+
+    onUpdateExtraIncomes(updatedList);
+    setTrackingIncome(updatedIncome);
+    setEditingFolioStudentId(null);
+
+    const student = students.find((s) => s.id === studentId);
+    const studentName = student ? `${student.nombres} ${student.apellidos}` : 'Alumno';
+
+    addMovementLog({
+      modulo: 'ingresos_extra',
+      tipoAccion: 'ingreso_extra_folio_alumno',
+      titulo: `Folio Editado: ${targetIncome.concepto}`,
+      descripcion: `Se actualizó el folio asignado al alumno ${studentName} a "#${trimmed}" en "${targetIncome.concepto}".`,
+      rol: userRole,
+      referenciaId: studentId,
+      referenciaNombre: studentName,
+      detallesAdicionales: { concepto: targetIncome.concepto, nuevoFolio: trimmed },
+    });
+  };
+
+  // Reordenar todos los folios secuencialmente 001, 002, 003...
+  const handleReassignSequentialFolios = (incomeId: string) => {
+    if (isAuditor) return;
+    const targetIncome = extraIncomes.find((i) => i.id === incomeId);
+    if (!targetIncome) return;
+
+    const newFolios: Record<string, string> = {};
+    students.forEach((st, idx) => {
+      newFolios[st.id] = String(idx + 1).padStart(3, '0');
+    });
+
+    const updatedIncome: ExtraIncome = {
+      ...targetIncome,
+      foliosPorAlumno: newFolios,
+    };
+
+    const updatedList = extraIncomes.map((item) =>
+      item.id === incomeId ? updatedIncome : item
+    );
+
+    onUpdateExtraIncomes(updatedList);
+    setTrackingIncome(updatedIncome);
+
+    addMovementLog({
+      modulo: 'ingresos_extra',
+      tipoAccion: 'ingreso_extra_folio_alumno',
+      titulo: `Folios Correlativos Reasignados: ${targetIncome.concepto}`,
+      descripcion: `Se reordenaron secuencialmente todos los folios (001 a ${String(students.length).padStart(3, '0')}) en "${targetIncome.concepto}".`,
+      rol: userRole,
+      detallesAdicionales: { totalAlumnos: students.length },
+    });
   };
 
   // Toggle student paid status from student checklist modal
@@ -335,7 +460,7 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
   };
 
   // WhatsApp reminder for Rifa or Cuota Extraordinaria
-  const sendWhatsAppReminder = (student: Student, income: ExtraIncome) => {
+  const sendWhatsAppReminder = (student: Student, income: ExtraIncome, folio?: string) => {
     const phone = cleanPhoneNumber(student.telefonoApoderado);
     const monto = formatCurrency(income.montoPorAlumno || 0);
 
@@ -343,6 +468,7 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
       `👋 *Estimado/a ${student.nombreApoderado || 'Apoderado/a'}:*`,
       `Le saludamos desde la Tesorería de *${config.nombreCurso}*.`,
       `Le recordamos sobre el pago de *${income.concepto}* (${income.descripcion}) para el alumno/a *${student.nombres} ${student.apellidos}*.`,
+      ...(folio ? [`🎫 *Folio / N° Asignado:* #${folio}`] : []),
       `💰 *Monto a cancelar:* ${monto}`,
       `📌 *Estado actual:* ⚠️ Pendiente de pago`,
     ];
@@ -481,7 +607,7 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
                               {formatCurrency(item.montoPorAlumno || 0)} c/u
                             </span>
                             <button
-                              onClick={() => setTrackingIncome(item)}
+                              onClick={() => openTrackingModal(item)}
                               className="inline-flex items-center gap-1.5 px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded text-[10px] font-bold transition-colors cursor-pointer"
                             >
                               <Users className="w-3 h-3" />
@@ -502,9 +628,9 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
                         <div className="flex items-center justify-center gap-1.5">
                           {isPerStudent && (
                             <button
-                              onClick={() => setTrackingIncome(item)}
+                              onClick={() => openTrackingModal(item)}
                               title="Controlar pago individual por alumno"
-                              className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-md transition-colors"
+                              className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer"
                             >
                               <Users className="w-4 h-4" />
                             </button>
@@ -644,6 +770,17 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
                     {!isAuditor && (
                       <div className="flex items-center gap-1">
                         <button
+                          onClick={() => {
+                            if (window.confirm('¿Deseas reordenar correlativamente los folios (001, 002, 003...) para todos los alumnos en esta actividad?')) {
+                              handleReassignSequentialFolios(trackingIncome.id);
+                            }
+                          }}
+                          title="Reordenar folios correlativos secuenciales (001, 002...)"
+                          className="px-2 py-1 text-[11px] font-semibold text-indigo-700 bg-white border border-indigo-200 rounded hover:bg-indigo-50 cursor-pointer shadow-2xs"
+                        >
+                          Reordenar Folios (001...)
+                        </button>
+                        <button
                           onClick={() => handleMarkAllStudents(trackingIncome.id, true)}
                           title="Marcar todos los alumnos obligados como pagados"
                           className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100 cursor-pointer"
@@ -669,6 +806,7 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 border-b border-slate-200 text-slate-600 font-semibold sticky top-0">
+                    <th className="py-2.5 px-3 text-center">Folio N°</th>
                     <th className="py-2.5 px-3">Alumno</th>
                     <th className="py-2.5 px-3">RUT</th>
                     <th className="py-2.5 px-3">Apoderado / Contacto</th>
@@ -690,6 +828,10 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
                     .map((student) => {
                       const isExempt = trackingIncome.alumnosExentos?.includes(student.id);
                       const isPaid = trackingIncome.alumnosPagados?.includes(student.id);
+                      const currentFolio =
+                        trackingIncome.foliosPorAlumno?.[student.id] ||
+                        String(students.findIndex((s) => s.id === student.id) + 1).padStart(3, '0');
+                      const isEditingFolio = editingFolioStudentId === student.id;
 
                       return (
                         <tr
@@ -698,6 +840,60 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
                             isExempt ? 'bg-purple-50/40 hover:bg-purple-50/70' : 'hover:bg-slate-50'
                           }`}
                         >
+                          {/* Folio Correlativo con Edición */}
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            {isEditingFolio ? (
+                              <div className="inline-flex items-center justify-center gap-1">
+                                <input
+                                  type="text"
+                                  value={folioInputValue}
+                                  onChange={(e) => setFolioInputValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleSaveStudentFolio(trackingIncome.id, student.id, folioInputValue);
+                                    if (e.key === 'Escape') setEditingFolioStudentId(null);
+                                  }}
+                                  autoFocus
+                                  className="w-16 px-1.5 py-0.5 text-xs font-mono font-bold text-center border-2 border-indigo-500 rounded bg-white focus:outline-hidden"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveStudentFolio(trackingIncome.id, student.id, folioInputValue)}
+                                  title="Guardar folio"
+                                  className="p-1 text-emerald-600 hover:bg-emerald-50 rounded cursor-pointer"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingFolioStudentId(null)}
+                                  title="Cancelar"
+                                  className="p-1 text-slate-400 hover:bg-slate-100 rounded cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center justify-center gap-1.5">
+                                <span className="font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded text-xs shadow-2xs">
+                                  #{currentFolio}
+                                </span>
+                                {!isAuditor && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingFolioStudentId(student.id);
+                                      setFolioInputValue(currentFolio);
+                                    }}
+                                    title="Editar folio asignado a este alumno"
+                                    className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+
                           <td className="py-2.5 px-3">
                             <span className="font-bold text-slate-900 block">
                               {student.nombres} {student.apellidos}
@@ -787,7 +983,7 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
                                   {/* WhatsApp Reminder Button */}
                                   {!isPaid && (
                                     <button
-                                      onClick={() => sendWhatsAppReminder(student, trackingIncome)}
+                                      onClick={() => sendWhatsAppReminder(student, trackingIncome, currentFolio)}
                                       title="Enviar recordatorio de cobro por WhatsApp"
                                       className="w-7 h-7 rounded bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center shadow-xs cursor-pointer"
                                     >
@@ -888,12 +1084,15 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
                     </span>
                   </div>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     required
-                    min={1}
-                    value={formMontoPorAlumno}
-                    onChange={(e) => setFormMontoPorAlumno(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder="Ej: 5000"
+                    value={formMontoPorAlumno !== '' ? formatThousands(formMontoPorAlumno) : ''}
+                    onChange={(e) => {
+                      const parsed = parseThousands(e.target.value);
+                      setFormMontoPorAlumno(e.target.value === '' ? '' : parsed);
+                    }}
+                    placeholder="Ej: 5.000"
                     className="w-full px-3 py-2 text-xs border border-indigo-300 rounded-lg font-mono focus:ring-2 focus:ring-indigo-600 bg-white"
                   />
                   <div className="text-[11px] text-indigo-800">
@@ -907,12 +1106,15 @@ export const ExtraIncomeModule: React.FC<ExtraIncomeModuleProps> = ({
                     Monto Recaudado Total ($ CLP) *
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     required
-                    min={1}
-                    value={formMonto}
-                    onChange={(e) => setFormMonto(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder="Ej: 85000"
+                    value={formMonto !== '' ? formatThousands(formMonto) : ''}
+                    onChange={(e) => {
+                      const parsed = parseThousands(e.target.value);
+                      setFormMonto(e.target.value === '' ? '' : parsed);
+                    }}
+                    placeholder="Ej: 85.000"
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-amber-600"
                   />
                 </div>

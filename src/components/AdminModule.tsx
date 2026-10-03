@@ -41,6 +41,7 @@ import {
   Key,
   AtSign,
   Globe,
+  Cake,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -69,6 +70,8 @@ import {
 } from '../services/storage';
 import { testSmtpConnection, sendEmailViaSmtp } from '../services/emailService';
 import { getEffectiveLogo } from '../assets/logo';
+import { formatThousands, parseThousands } from '../services/formatters';
+import { checkAndDispatchAutomaticBirthdayEmails, getSentBirthdayRecords } from '../services/automaticBirthdayService';
 
 interface AdminModuleProps {
   config: CourseConfig;
@@ -188,7 +191,15 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
   // Local state for settings form
   const [nombreCurso, setNombreCurso] = useState(config.nombreCurso);
   const [institucion, setInstitucion] = useState(config.institucion);
-  const [cuotaMensual, setCuotaMensual] = useState(config.cuotaMensualPorDefecto);
+  const [cuotaMensual, setCuotaMensual] = useState<number | ''>(config.cuotaMensualPorDefecto);
+  const [envioAutomaticoCumpleanos, setEnvioAutomaticoCumpleanos] = useState<boolean>(
+    config.envioAutomaticoCumpleanos !== false
+  );
+  const [isCheckingBirthdays, setIsCheckingBirthdays] = useState(false);
+  const [birthdayCheckResultMsg, setBirthdayCheckResultMsg] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
   const [logoUrl, setLogoUrl] = useState<string>(config.logoUrl || '');
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
 
@@ -294,6 +305,43 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
     }
   };
 
+  const handleManualTriggerBirthdayCheck = async () => {
+    if (isAuditor) return;
+    setIsCheckingBirthdays(true);
+    setBirthdayCheckResultMsg(null);
+    try {
+      const res = await checkAndDispatchAutomaticBirthdayEmails(students || [], config);
+      if (res.sentStudents.length > 0) {
+        setBirthdayCheckResultMsg({
+          success: true,
+          message: `¡Despacho exitoso! Se enviaron automáticamente ${res.sentStudents.length} correos de saludo de cumpleaños a los apoderados de: ${res.sentStudents.map((s) => `${s.nombres} ${s.apellidos}`).join(', ')}.`,
+        });
+      } else if (res.alreadySentStudents.length > 0) {
+        setBirthdayCheckResultMsg({
+          success: true,
+          message: `Alumnos de cumpleaños hoy (${res.alreadySentStudents.map((s) => s.nombres).join(', ')}): Sus correos de saludo ya fueron despachados automáticamente el día de hoy.`,
+        });
+      } else if (res.noEmailStudents.length > 0) {
+        setBirthdayCheckResultMsg({
+          success: false,
+          message: `Hay ${res.noEmailStudents.length} alumno(s) de cumpleaños hoy (${res.noEmailStudents.map((s) => s.nombres).join(', ')}), pero no tienen registrado el correo del apoderado.`,
+        });
+      } else {
+        setBirthdayCheckResultMsg({
+          success: true,
+          message: 'No hay alumnos activos que cumplan años el día de hoy, o no hay envíos pendientes.',
+        });
+      }
+    } catch (err: any) {
+      setBirthdayCheckResultMsg({
+        success: false,
+        message: `Error al despachar saludos automáticos: ${err.message || 'Error desconocido'}`,
+      });
+    } finally {
+      setIsCheckingBirthdays(false);
+    }
+  };
+
   const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -339,8 +387,9 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
       ...config,
       nombreCurso: nombreCurso.trim(),
       institucion: institucion.trim(),
-      cuotaMensualPorDefecto: Number(cuotaMensual),
+      cuotaMensualPorDefecto: Number(cuotaMensual) || config.cuotaMensualPorDefecto,
       logoUrl: logoUrl.trim() || undefined,
+      envioAutomaticoCumpleanos,
       datosBancarios: {
         banco: banco.trim(),
         tipoCuenta: tipoCuenta.trim(),
@@ -2256,12 +2305,16 @@ ${config.nombreCurso} · ${config.institucion}`;
               Cuota Mensual Estándar ($ CLP)
             </label>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               required
               disabled={isAuditor}
-              min={1}
-              value={cuotaMensual}
-              onChange={(e) => setCuotaMensual(Number(e.target.value))}
+              value={cuotaMensual !== '' ? formatThousands(cuotaMensual) : ''}
+              onChange={(e) => {
+                const parsed = parseThousands(e.target.value);
+                setCuotaMensual(e.target.value === '' ? '' : parsed);
+              }}
+              placeholder="Ej: 3.000"
               className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-slate-900 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
             />
           </div>
@@ -2734,6 +2787,87 @@ ${config.nombreCurso} · ${config.institucion}`;
                     {smtpTestResult.message}
                   </span>
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* SECCIÓN ENVÍO AUTOMÁTICO DE CUMPLEAÑOS */}
+          <div className="p-4 bg-linear-to-r from-pink-50 via-purple-50 to-indigo-50 border border-pink-200 rounded-xl space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-pink-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Cake className="w-4 h-4" />
+                </div>
+                <div>
+                  <h5 className="font-bold text-xs text-slate-900 flex items-center gap-2">
+                    <span>Envío Automático de Correos de Cumpleaños</span>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 border border-pink-200 uppercase">
+                      Automático
+                    </span>
+                  </h5>
+                  <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                    El sistema detecta automáticamente los cumpleaños del día y envía un saludo festivo personalizado a la bandeja de correo del apoderado vía SMTP.
+                  </p>
+                </div>
+              </div>
+
+              {/* Switch de activación */}
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  disabled={isAuditor}
+                  checked={envioAutomaticoCumpleanos}
+                  onChange={(e) => setEnvioAutomaticoCumpleanos(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-pink-600"></div>
+                <span className="ml-2 text-xs font-bold text-slate-700">
+                  {envioAutomaticoCumpleanos ? 'Activado' : 'Desactivado'}
+                </span>
+              </label>
+            </div>
+
+            {/* Panel de prueba / despacho manual inmediato */}
+            <div className="pt-2 border-t border-pink-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <span className="text-[11px] text-slate-500">
+                Puedes verificar o adelantar el despacho de cumpleaños de hoy manualmente con un clic:
+              </span>
+              <button
+                type="button"
+                disabled={isAuditor || isCheckingBirthdays}
+                onClick={handleManualTriggerBirthdayCheck}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-pink-600 hover:bg-pink-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                {isCheckingBirthdays ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Verificando y despachando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Verificar y Despachar Cumpleaños de Hoy</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {birthdayCheckResultMsg && (
+              <div
+                className={`p-3 rounded-xl border text-xs flex items-start gap-2 animate-in fade-in ${
+                  birthdayCheckResultMsg.success
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : 'bg-amber-50 border-amber-200 text-amber-900'
+                }`}
+              >
+                {birthdayCheckResultMsg.success ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                )}
+                <span className="text-[11px] font-medium leading-relaxed">
+                  {birthdayCheckResultMsg.message}
+                </span>
               </div>
             )}
           </div>

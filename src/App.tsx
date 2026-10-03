@@ -40,6 +40,7 @@ import { AdminModule } from './components/AdminModule';
 import { ParentPortal } from './components/ParentPortal';
 import { LoginScreen } from './components/LoginScreen';
 import { ShieldAlert, Plus, X } from 'lucide-react';
+import { checkAndDispatchAutomaticBirthdayEmails } from './services/automaticBirthdayService';
 
 export default function App() {
   // Authentication session state
@@ -129,6 +130,34 @@ export default function App() {
       });
     };
   }, [authSession]);
+
+  // Automated background birthday email dispatcher
+  useEffect(() => {
+    if (config.envioAutomaticoCumpleanos === false) return;
+    if (!config.smtpConfig?.user || !config.smtpConfig?.pass) return;
+
+    let isMounted = true;
+    const runAutoBirthdayCheck = async () => {
+      try {
+        const result = await checkAndDispatchAutomaticBirthdayEmails(students, config);
+        if (isMounted && result.sentStudents.length > 0) {
+          console.log(
+            `🎂 Se enviaron automáticamente ${result.sentStudents.length} saludos de cumpleaños vía SMTP a los apoderados.`
+          );
+        }
+      } catch (err) {
+        console.error('Error al ejecutar despacho automático de cumpleaños:', err);
+      }
+    };
+
+    runAutoBirthdayCheck();
+    const interval = setInterval(runAutoBirthdayCheck, 30 * 60 * 1000); // Re-check every 30 minutes
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [students, config]);
 
   // Sync state helpers
   const handleUpdateConfig = (newConfig: CourseConfig) => {

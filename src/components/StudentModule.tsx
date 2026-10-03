@@ -57,6 +57,10 @@ import {
 import {
   sendBirthdayGreetingEmail,
 } from '../services/emailService';
+import {
+  isBirthdayGreetingSentToday,
+  recordBirthdayGreetingSent,
+} from '../services/automaticBirthdayService';
 
 interface StudentModuleProps {
   students: Student[];
@@ -354,6 +358,7 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
       });
 
       if (res.success) {
+        recordBirthdayGreetingSent(birthdayModalStudent);
         setBirthdaySendResult({
           success: true,
           message: `¡Correo de cumpleaños enviado con éxito a ${birthdayModalStudent.emailApoderado}!`,
@@ -391,6 +396,67 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* BANNER CELEBRACIÓN CUMPLEAÑOS DE HOY */}
+      {showBirthdaysBanner && todayBirthdays.length > 0 && (
+        <div className="relative overflow-hidden bg-linear-to-r from-pink-500 via-purple-600 to-indigo-600 rounded-2xl p-4 sm:p-5 text-white shadow-lg border border-pink-300">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative z-10">
+            <div className="flex items-start gap-3">
+              <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-2xl shrink-0 border border-white/30 shadow-inner">
+                🎂
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-yellow-400 text-yellow-950 shadow-xs flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-yellow-950" />
+                    ¡Cumpleaños Hoy!
+                  </span>
+                  <span className="text-xs font-medium text-pink-100">
+                    {todayBirthdays.length === 1 ? '1 alumno festeja su día' : `${todayBirthdays.length} alumnos festejan su día`}
+                  </span>
+                </div>
+                <h3 className="text-base sm:text-lg font-extrabold text-white mt-1">
+                  {todayBirthdays
+                    .map((s) => `${s.nombres} ${s.apellidos} (${calculateAge(s.fechaNacimiento)} años)`)
+                    .join(' · ')}
+                </h3>
+                <p className="text-xs text-pink-100/90 mt-0.5">
+                  El sistema envía el saludo de cumpleaños automáticamente vía SMTP al apoderado, o puedes despacharlo de forma manual con un clic.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full md:w-auto shrink-0 flex-wrap">
+              {todayBirthdays.map((s) => {
+                const alreadySent = isBirthdayGreetingSentToday(s.id);
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => handleOpenBirthdayModal(s)}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer transform hover:scale-105 ${
+                      alreadySent
+                        ? 'bg-emerald-100 text-emerald-950 hover:bg-emerald-200 border border-emerald-300'
+                        : 'bg-white text-purple-900 hover:bg-yellow-300 hover:text-purple-950'
+                    }`}
+                  >
+                    <Cake className={`w-4 h-4 ${alreadySent ? 'text-emerald-700' : 'text-pink-600'}`} />
+                    <span>
+                      {alreadySent ? `✓ ${s.nombres.split(' ')[0]} (Saludado hoy)` : `Saludar a ${s.nombres.split(' ')[0]}`}
+                    </span>
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setShowBirthdaysBanner(false)}
+                title="Ocultar aviso de hoy"
+                className="p-1.5 text-white/70 hover:text-white rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header and Controls */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -724,8 +790,8 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                             Inactivo ({summary.paidMonthsCount} pagos)
                           </span>
                         ) : student.noPagaCuota ? (
-                          <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded text-[11px] font-semibold border border-purple-200">
-                            Exento
+                          <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded text-[11px] font-semibold border border-purple-200" title="Exento de Cuota / Alumno socio">
+                            Exento / Socio
                           </span>
                         ) : summary.isUpToDate ? (
                           <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[11px] font-semibold border border-emerald-200">
@@ -756,6 +822,25 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-center">
                         <div className="flex items-center justify-center gap-1.5">
+                          {/* Birthday Button */}
+                          {student.fechaNacimiento && (
+                            <button
+                              onClick={() => handleOpenBirthdayModal(student)}
+                              title={
+                                isTodayBirthday(student.fechaNacimiento)
+                                  ? '🎂 ¡Hoy es su Cumpleaños! Enviar correo festivo'
+                                  : 'Enviar correo de saludo de cumpleaños'
+                              }
+                              className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                                isTodayBirthday(student.fechaNacimiento)
+                                  ? 'text-pink-600 bg-pink-100 hover:bg-pink-200 ring-2 ring-pink-400 animate-bounce'
+                                  : 'text-slate-400 hover:text-pink-600 hover:bg-pink-50'
+                              }`}
+                            >
+                              <Cake className="w-4 h-4" />
+                            </button>
+                          )}
+
                           {/* Ficha Button */}
                           <button
                             onClick={() => setViewingStudent(student)}
@@ -1140,13 +1225,16 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
               </div>
 
               {/* No paga cuota toggle switch */}
-              <div className="flex items-center justify-between p-3 bg-purple-50/60 rounded-xl border border-purple-200">
+              <div className="flex items-center justify-between p-3.5 bg-purple-50/70 rounded-xl border border-purple-200">
                 <div>
-                  <span className="text-xs font-bold text-purple-900 block">
+                  <span className="text-xs font-bold text-purple-950 block">
+                    Exento de Cuota / Alumno socio
+                  </span>
+                  <span className="text-[11px] font-semibold text-purple-800 block">
                     Beneficio de Beca / Exento de Cuota
                   </span>
-                  <span className="text-[11px] text-purple-700">
-                    Activar si el alumno no paga cuotas mensuales por acuerdo de curso o directiva.
+                  <span className="text-[11px] text-purple-700 block mt-0.5">
+                    Activar si el alumno o Socio no paga cuotas mensuales.
                   </span>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -1228,7 +1316,7 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                   )}
                   {viewingStudent.noPagaCuota && (
                     <span className="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded font-bold">
-                      Exento de Cuota
+                      Exento de Cuota / Alumno socio
                     </span>
                   )}
                 </div>
@@ -1255,14 +1343,30 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
                   <div className="text-xs text-slate-700">
                     <span className="font-semibold block">Fecha de Nacimiento:</span>
                     {viewingStudent.fechaNacimiento ? (
-                      <span>
-                        {formatDateCL(viewingStudent.fechaNacimiento)}
-                        {calculateAge(viewingStudent.fechaNacimiento) !== null && (
-                          <strong className="text-slate-900 ml-1">
-                            ({calculateAge(viewingStudent.fechaNacimiento)} años)
-                          </strong>
-                        )}
-                      </span>
+                      <div>
+                        <span>
+                          {formatDateCL(viewingStudent.fechaNacimiento)}
+                          {calculateAge(viewingStudent.fechaNacimiento) !== null && (
+                            <strong className="text-slate-900 ml-1">
+                              ({calculateAge(viewingStudent.fechaNacimiento)} años)
+                            </strong>
+                          )}
+                        </span>
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const s = viewingStudent;
+                              setViewingStudent(null);
+                              handleOpenBirthdayModal(s);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            <Cake className="w-3.5 h-3.5 text-pink-600" />
+                            <span>Enviar Saludo de Cumpleaños por Correo</span>
+                          </button>
+                        </div>
+                      </div>
                     ) : (
                       'No registrada'
                     )}
@@ -1495,6 +1599,161 @@ export const StudentModule: React.FC<StudentModuleProps> = ({
               >
                 {togglingStudent.activo !== false ? 'Sí, desactivar' : 'Sí, reactivar'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BIRTHDAY GREETING MODAL */}
+      {birthdayModalStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden border border-pink-100 my-8">
+            {/* Modal Header */}
+            <div className="p-5 bg-linear-to-r from-pink-600 via-purple-600 to-indigo-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-xl shrink-0 border border-white/30">
+                  🎂
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base flex items-center gap-2">
+                    Saludo de Feliz Cumpleaños
+                    {isTodayBirthday(birthdayModalStudent.fechaNacimiento) && (
+                      <span className="text-[10px] font-bold bg-yellow-400 text-yellow-950 px-2 py-0.5 rounded-full">
+                        ¡Hoy!
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-pink-100">
+                    {birthdayModalStudent.nombres} {birthdayModalStudent.apellidos} ·{' '}
+                    {calculateAge(birthdayModalStudent.fechaNacimiento) !== null
+                      ? `Cumple ${calculateAge(birthdayModalStudent.fechaNacimiento)} años`
+                      : 'Fecha de cumpleaños'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setBirthdayModalStudent(null)}
+                className="text-white/80 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Apoderado recipient card */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">Apoderado destinatario:</span>
+                  <span className="font-bold text-slate-800">
+                    {birthdayModalStudent.nombreApoderado || 'No registrado'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">Correo Electrónico:</span>
+                  <span className="font-mono font-semibold text-indigo-700">
+                    {birthdayModalStudent.emailApoderado || (
+                      <span className="text-red-600 font-bold">Sin correo registrado</span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between border-t border-slate-200 pt-1.5 text-[11px]">
+                  <span className="text-slate-500">Servidor SMTP:</span>
+                  {config.smtpConfig?.user && config.smtpConfig?.pass ? (
+                    <span className="text-emerald-700 font-bold flex items-center gap-1">
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                      Listo para envío directo ({config.smtpConfig.host})
+                    </span>
+                  ) : (
+                    <span className="text-amber-700 font-semibold flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                      No configurado (configurar en Administración)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Asunto input */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Asunto del Correo Electrónico
+                </label>
+                <input
+                  type="text"
+                  value={birthdaySubject}
+                  onChange={(e) => setBirthdaySubject(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 font-semibold"
+                />
+              </div>
+
+              {/* Mensaje textarea */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Mensaje Personalizado de Felicitación
+                </label>
+                <textarea
+                  rows={4}
+                  value={birthdayCustomMessage}
+                  onChange={(e) => setBirthdayCustomMessage(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 text-slate-700 leading-relaxed"
+                />
+              </div>
+
+              {/* Feedback banner */}
+              {birthdaySendResult && (
+                <div
+                  className={`p-3 rounded-xl border text-xs flex items-start gap-2 ${
+                    birthdaySendResult.success
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-red-50 border-red-200 text-red-800'
+                  }`}
+                >
+                  {birthdaySendResult.success ? (
+                    <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  )}
+                  <div>
+                    <strong className="block font-bold">
+                      {birthdaySendResult.success ? '¡Despacho Exitoso!' : 'Atención al Enviar'}
+                    </strong>
+                    <span>{birthdaySendResult.message}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Botones de acción */}
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    openBirthdayWhatsAppChat(
+                      birthdayModalStudent,
+                      config,
+                      birthdayCustomMessage
+                    )
+                  }
+                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>Enviar por WhatsApp</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isSendingBirthdayEmail}
+                  onClick={handleSendBirthdayEmail}
+                  className={`w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-bold shadow-md transition-colors cursor-pointer ${
+                    isSendingBirthdayEmail ? 'opacity-60 cursor-not-allowed' : ''
+                  }`}
+                >
+                  <Send className="w-4 h-4" />
+                  <span>
+                    {isSendingBirthdayEmail
+                      ? 'Enviando vía SMTP...'
+                      : 'Enviar Correo Electrónico (SMTP)'}
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

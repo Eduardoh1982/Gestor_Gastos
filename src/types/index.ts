@@ -120,7 +120,7 @@ export interface MovementLog {
   id: string;
   fechaHora: string; // Formato ISO
   timestamp: number;
-  modulo: 'cuotas' | 'gastos' | 'ingresos_extra' | 'sistema';
+  modulo: 'cuotas' | 'gastos' | 'ingresos_extra' | 'sistema' | 'estudiantes';
   tipoAccion: LogActionType;
   titulo: string;
   descripcion: string;
@@ -169,6 +169,7 @@ export interface CourseConfig {
   datosBancarios: BankAccountDetails;
   smtpConfig?: SmtpConfig;
   logoUrl?: string; // Custom uploaded logo in base64 or URL
+  envioAutomaticoCumpleanos?: boolean; // Envío automático de saludos de cumpleaños el día correspondiente
 }
 
 export type UserRole = 'admin' | 'auditor' | 'apoderado';

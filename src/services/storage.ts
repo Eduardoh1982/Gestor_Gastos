@@ -78,6 +78,7 @@ export const DEFAULT_CONFIG: CourseConfig = {
     fromEmail: 'tesoreria.curso@gmail.com',
     fromName: 'Tesorería Shito ryu',
   },
+  envioAutomaticoCumpleanos: true,
 };
 
 export const DEFAULT_STUDENTS: Student[] = [
@@ -313,6 +314,7 @@ export function getStoredConfig(): CourseConfig {
       ...parsed,
       currentYear: currentSysYear,
       availableYears,
+      envioAutomaticoCumpleanos: parsed.envioAutomaticoCumpleanos !== false,
     };
   } catch {
     return { ...DEFAULT_CONFIG, currentYear: currentSysYear };
