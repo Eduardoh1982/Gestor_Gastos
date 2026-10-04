@@ -1,6 +1,0 @@
-{
-  "name": "Gestor de Fondos",
-  "description": "Sistema de gestión contable anual de fondos: cuotas mensuales, ingresos extras, gastos con boletas, balances y roles de usuario.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
